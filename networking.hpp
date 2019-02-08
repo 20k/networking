@@ -7,11 +7,19 @@
 #include <vector>
 #include <mutex>
 #include <optional>
+#include "serialisable.hpp"
 
 struct write_data
 {
-    std::string data;
     uint64_t id = 0;
+    std::string data;
+};
+
+template<typename T>
+struct writes_data
+{
+    uint64_t id = 0;
+    T data = T();
 };
 
 struct connection
@@ -27,8 +35,31 @@ struct connection
     std::string read();
     void pop_read();
 
+    template<typename T>
+    writes_data<T> reads_from()
+    {
+        write_data data = read_from();
+
+        nlohmann::json nl = nlohmann::json::parse(data.data);
+
+        T ret = deserialise<T>(nl);
+
+        return {data.id, ret};
+    }
+
     void write_to(const write_data& data);
     void write(const std::string& data);
+
+    void writes_to(serialisable& data, uint64_t id)
+    {
+        nlohmann::json ret = serialise(data);
+
+        write_data dat;
+        dat.id = id;
+        dat.data = ret.dump();
+
+        write_to(dat);
+    }
 
     connection();
 

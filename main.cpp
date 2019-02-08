@@ -3,6 +3,18 @@
 #include <iostream>
 #include <windows.h>
 
+void serialise_test()
+{
+    test_serialisable ser;
+    ser.test_datamember = 5;
+
+    nlohmann::json intermediate = serialise(ser);
+
+    test_serialisable second = deserialise<test_serialisable>(intermediate);
+
+    assert(second.test_datamember == ser.test_datamember);
+}
+
 int main(int argc, char* argv[])
 {
     connection server;
@@ -14,18 +26,16 @@ int main(int argc, char* argv[])
     connection client2;
     client2.connect("127.0.0.1", 11000);
 
-    client.write("test");
+    //client.write("test");
 
-    client2.write("test2");
+    //client2.write("test2");
 
-    test_serialisable ser;
-    ser.test_datamember = 5;
+    serialise_test();
 
-    nlohmann::json intermediate = serialise(ser);
+    test_serialisable test_network;
+    test_network.test_datamember = 23;
 
-    test_serialisable second = deserialise<test_serialisable>(intermediate);
-
-    std::cout << "test ser " << second.test_datamember << std::endl;
+    client2.writes_to(test_network, -1);
 
     while(1)
     {
@@ -45,6 +55,12 @@ int main(int argc, char* argv[])
         if(client2.has_read())
         {
             std::cout << "client2 " << client2.read() << std::endl;
+
+            test_serialisable test;
+            test = client2.reads_from<test_serialisable>().data;
+
+            std::cout << "TEST " << test.test_datamember << std::endl;
+
             client2.pop_read();
         }
 
