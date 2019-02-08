@@ -105,11 +105,6 @@ server_session(connection& conn, tcp::socket& socket)
     }
 }
 
-connection::connection()
-{
-
-}
-
 void server_thread(connection& conn, std::string saddress, uint16_t port)
 {
     boost::asio::io_context ioc{1};

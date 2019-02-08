@@ -61,8 +61,6 @@ struct connection
         write_to(dat);
     }
 
-    connection();
-
     std::mutex mut;
     std::vector<write_data> write_queue;
     std::vector<write_data> read_queue;
