@@ -1,4 +1,5 @@
 #include "networking.hpp"
+#include "serialisable.hpp"
 #include <iostream>
 #include <windows.h>
 
@@ -16,6 +17,15 @@ int main(int argc, char* argv[])
     client.write("test");
 
     client2.write("test2");
+
+    test_serialisable ser;
+    ser.test_datamember = 5;
+
+    nlohmann::json intermediate = serialise(ser);
+
+    test_serialisable second = deserialise<test_serialisable>(intermediate);
+
+    std::cout << "test ser " << second.test_datamember << std::endl;
 
     while(1)
     {

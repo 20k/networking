@@ -32,6 +32,7 @@
 			<Add option="-Wall" />
 			<Add option="-std=c++1z" />
 			<Add option="-fexceptions" />
+			<Add directory="deps" />
 		</Compiler>
 		<Linker>
 			<Add option="-lws2_32" />
@@ -40,6 +41,8 @@
 		<Unit filename="main.cpp" />
 		<Unit filename="networking.cpp" />
 		<Unit filename="networking.hpp" />
+		<Unit filename="serialisable.cpp" />
+		<Unit filename="serialisable.hpp" />
 		<Extensions>
 			<code_completion />
 			<envvars />
