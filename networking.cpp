@@ -32,6 +32,12 @@ server_session(connection& conn, tcp::socket& socket)
 
         uint64_t id = conn.id++;
 
+        {
+            std::lock_guard guard(conn.mut);
+
+            conn.new_clients.push_back(id);
+        }
+
         while(1)
         {
             try
@@ -278,4 +284,22 @@ void connection::write_to(const write_data& data)
     std::lock_guard guard(mut);
 
     write_queue.push_back(data);
+}
+
+std::optional<uint64_t> connection::has_new_client()
+{
+    for(auto& i : new_clients)
+    {
+        return i;
+    }
+
+    return std::nullopt;
+}
+
+void connection::pop_new_client()
+{
+    if(new_clients.size() > 0)
+    {
+        new_clients.erase(new_clients.begin());
+    }
 }

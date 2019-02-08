@@ -6,6 +6,7 @@
 #include <thread>
 #include <vector>
 #include <mutex>
+#include <optional>
 
 struct write_data
 {
@@ -17,6 +18,9 @@ struct connection
 {
     void host(const std::string& address, uint16_t port);
     void connect(const std::string& address, uint16_t port);
+
+    std::optional<uint64_t> has_new_client();
+    void pop_new_client();
 
     bool has_read();
     write_data read_from();
@@ -33,6 +37,7 @@ struct connection
     std::vector<write_data> read_queue;
 
     uint64_t id = 0;
+    std::vector<uint64_t> new_clients;
 
 private:
     bool is_client = true;

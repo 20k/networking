@@ -25,6 +25,13 @@ int main(int argc, char* argv[])
             client.pop_read();
         }
 
+        while(server.has_new_client())
+        {
+            std::cout << "new client\n";
+
+            server.pop_new_client();
+        }
+
         if(client2.has_read())
         {
             std::cout << "client2 " << client2.read() << std::endl;
