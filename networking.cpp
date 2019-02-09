@@ -62,19 +62,43 @@ server_session(connection& conn, tcp::socket& socket)
                     }
                 }
 
-                boost::beast::multi_buffer buffer;
-
                 {
                     std::lock_guard guard(conn.mut);
 
-                    while(ws.next_layer().available() > 0)
+                    std::cout << "available " << ws.next_layer().available() << std::endl;
+
+                    int64_t expected = ws.next_layer().available();
+
+                    while(expected > 0)
                     {
-                        ws.read(buffer);
+                        boost::system::error_code ec;
 
-                        std::ostringstream os;
-                        os << boost::beast::buffers(buffer.data());
+                        boost::beast::flat_buffer buffer;
+                        size_t num_bytes = ws.read(buffer, ec);
 
-                        std::string next = os.str();
+                        expected -= num_bytes;
+
+                        std::cout << "now available " << ws.next_layer().available() << std::endl;
+
+                        if(ec)
+                        {
+                            printf("failed\n");
+                        }
+
+                        //std::ostringstream os;
+                        //os << boost::beast::buffers(buffer.data());
+
+                        //std::string next = os.str();
+
+                        std::string next = boost::beast::buffers_to_string(buffer.data());
+
+                        std::cout << "bsize " << buffer.size() << std::endl;
+
+                        buffer.consume(buffer.size());
+
+                        std::cout << buffer.size() << std::endl;
+
+                        std::cout << "RDATA " << next << std::endl;
 
                         write_data ndata;
                         ndata.data = next;
@@ -87,7 +111,7 @@ server_session(connection& conn, tcp::socket& socket)
             }
             catch(...)
             {
-
+                std::cout << "exception\n";
             }
 
             Sleep(1);
@@ -163,6 +187,8 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
         ws.handshake(address, "/");
 
+        ws.text(false);
+
         while(1)
         {
             try
@@ -180,14 +206,17 @@ void client_thread(connection& conn, std::string address, uint16_t port)
                     }
                 }
 
-                boost::beast::multi_buffer buffer;
-
                 {
                     std::lock_guard guard(conn.mut);
 
-                    while(ws.next_layer().available() > 0)
+                    int64_t expected = ws.next_layer().available();
+
+                    while(expected > 0)
                     {
-                        ws.read(buffer);
+                        boost::beast::multi_buffer buffer;
+                        size_t num_bytes = ws.read(buffer);
+
+                        expected -= num_bytes;
 
                         std::ostringstream os;
                         os << boost::beast::buffers(buffer.data());

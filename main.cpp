@@ -37,6 +37,10 @@ int main(int argc, char* argv[])
 
     client2.writes_to(test_network, -1);
 
+    client2.write(nlohmann::json("hello").dump());
+    client2.write(nlohmann::json("hello2").dump());
+    client2.write(nlohmann::json("hello3").dump());
+
     while(1)
     {
         if(client.has_read())
@@ -56,10 +60,10 @@ int main(int argc, char* argv[])
         {
             std::cout << "client2 " << client2.read() << std::endl;
 
-            test_serialisable test;
+            /*test_serialisable test;
             test = client2.reads_from<test_serialisable>().data;
 
-            std::cout << "TEST " << test.test_datamember << std::endl;
+            std::cout << "TEST " << test.test_datamember << std::endl;*/
 
             client2.pop_read();
         }
