@@ -7,6 +7,7 @@
 #include <vector>
 #include <mutex>
 #include <optional>
+#include <atomic>
 #include "serialisable.hpp"
 
 struct write_data
@@ -65,13 +66,13 @@ struct connection
     std::vector<write_data> write_queue;
     std::vector<write_data> read_queue;
 
-    uint64_t id = 0;
+    std::atomic_int id = 0;
     std::vector<uint64_t> new_clients;
+    std::vector<std::thread> thrd;
 
 private:
     bool is_client = true;
     bool is_connected = false;
-    std::vector<std::thread> thrd;
 };
 
 #endif // NETWORKING_HPP_INCLUDED
