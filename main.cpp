@@ -2,6 +2,7 @@
 #include "serialisable.hpp"
 #include <iostream>
 #include <windows.h>
+#include "netinterpolate.hpp"
 
 void serialise_test()
 {
@@ -15,8 +16,53 @@ void serialise_test()
     assert(second.test_datamember == ser.test_datamember);
 }
 
+template<bool auth>
+struct net_test : serialisable
+{
+    net_interpolate<double, auth> tdouble;
+
+    virtual void serialise(nlohmann::json& data, bool encode) override
+    {
+        DO_SERIALISE(tdouble);
+    }
+};
+
+void netinterpolate_test()
+{
+    net_test<true> my_test;
+
+    my_test.tdouble.set_host(1234);
+
+
+    nlohmann::json wire = serialise(my_test);
+
+    net_test<false> decode_test;
+
+    decode_test = deserialise<net_test<false>>(wire);
+
+    std::cout << "decode " << decode_test.tdouble.get_interpolated(serialisable::time_ms()) << std::endl;
+
+    Sleep(1000);
+
+    nlohmann::json two;
+
+    my_test.tdouble.set_host(2234);
+
+    two = serialise(my_test);
+
+
+    //decode_test = deserialise<net_test<false>>(two);
+
+    deserialise(two, decode_test);
+
+
+    std::cout << "decode2 " << decode_test.tdouble.get_interpolated(serialisable::time_ms() - 100) << std::endl;
+}
+
 int main(int argc, char* argv[])
 {
+    netinterpolate_test();
+
     connection server;
     server.host("127.0.0.1", 11000);
 
@@ -74,7 +120,7 @@ int main(int argc, char* argv[])
         {
             write_data read = server.read_from();
 
-            std::cout << read.data << std::endl;
+            std::cout << "Server " << read.data << std::endl;
             std::cout << "id " << read.id << std::endl;
 
             server.write_to(read);

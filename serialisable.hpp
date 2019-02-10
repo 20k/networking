@@ -7,6 +7,8 @@
 struct serialisable
 {
     virtual void serialise(nlohmann::json& data, bool encode);
+
+    static size_t time_ms();
 };
 
 template<typename T>
@@ -80,6 +82,20 @@ T deserialise(nlohmann::json& in)
     }
 
     return ret;
+}
+
+template<typename T>
+void deserialise(nlohmann::json& in, T& dat)
+{
+    if constexpr(std::is_base_of_v<serialisable, T>)
+    {
+        dat.serialise(in, false);
+    }
+
+    if constexpr(!std::is_base_of_v<serialisable, T>)
+    {
+        dat = (T)in;
+    }
 }
 
 #endif // SERIALISABLE_HPP_INCLUDED
