@@ -30,12 +30,28 @@ fail(boost::system::error_code ec, char const* what)
     std::cerr << what << ": " << ec.message() << "\n";
 }
 
+///strand?
 void
-server_session(connection& conn, boost::asio::io_context& ioc, tcp::socket& socket)
+server_session(connection& conn, std::string saddress, uint16_t port, std::atomic_bool& accepted)
 {
     try
     {
-        websocket::stream<tcp::socket> ws{std::move(socket)};
+        boost::asio::io_context ioc{1};
+
+        auto const address = boost::asio::ip::make_address(saddress);
+
+        tcp::socket* socket = nullptr;
+
+        {
+            tcp::acceptor acceptor{ioc, {address, port}};
+
+            socket = new tcp::socket{ioc};
+
+            acceptor.accept(*socket);
+            accepted = true;
+        }
+
+        websocket::stream<tcp::socket> ws{std::move(*socket)};
 
         boost::asio::ip::tcp::no_delay nagle(true);
         ws.next_layer().set_option(nagle);
@@ -130,10 +146,13 @@ server_session(connection& conn, boost::asio::io_context& ioc, tcp::socket& sock
                                       rbuffer = decltype(rbuffer)();
 
                                       async_read = false;
+
                                   });
 
                     async_read = true;
                 }
+
+                ioc.poll();
             }
             catch(...)
             {
@@ -157,7 +176,7 @@ server_session(connection& conn, boost::asio::io_context& ioc, tcp::socket& sock
 
 void server_thread(connection& conn, std::string saddress, uint16_t port)
 {
-    boost::asio::io_context ioc{1};
+    /*boost::asio::io_context ioc{1};
     auto const address = boost::asio::ip::make_address(saddress);
 
     bool has_async = false;
@@ -191,12 +210,28 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
                 ioc.run();
 
                 Sleep(1);
+
+                //std::cout << "postrun\n";
             }
             catch(...)
             {
                 std::cout << "Received exception in server thread";
             }
         }
+    }*/
+
+    std::atomic_bool accepted = true;
+
+    while(1)
+    {
+        if(accepted)
+        {
+            accepted = false;
+
+            std::thread(server_session, std::ref(conn), saddress, port, std::ref(accepted)).detach();
+        }
+
+        Sleep(1);
     }
 }
 
