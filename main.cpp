@@ -41,6 +41,8 @@ int main(int argc, char* argv[])
     client2.write(nlohmann::json("hello2").dump());
     client2.write(nlohmann::json("hello3").dump());
 
+    client.write(nlohmann::json("Test1234").dump());
+
     while(1)
     {
         if(client.has_read())
