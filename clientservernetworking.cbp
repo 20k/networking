@@ -38,7 +38,6 @@
 		<Linker>
 			<Add option="-lws2_32" />
 			<Add option="-lmswsock" />
-			<Add option="-lboost_context" />
 		</Linker>
 		<Unit filename="main.cpp" />
 		<Unit filename="networking.cpp" />

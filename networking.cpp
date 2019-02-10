@@ -8,18 +8,10 @@
 #include <iostream>
 #include <string>
 
-#include <boost/asio/spawn.hpp>
 #include <boost/asio/buffer.hpp>
-#include <boost/asio/bind_executor.hpp>
-#include <boost/asio/strand.hpp>
-#include <algorithm>
-#include <functional>
 #include <memory>
 #include <thread>
 #include <vector>
-#include <future>
-#include <boost/asio/use_future.hpp>
-
 
 using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
 namespace websocket = boost::beast::websocket;  // from <boost/beast/websocket.hpp>
@@ -30,7 +22,6 @@ fail(boost::system::error_code ec, char const* what)
     std::cerr << what << ": " << ec.message() << "\n";
 }
 
-///strand?
 void
 server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socket& socket)
 {
@@ -60,11 +51,6 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
 
         boost::beast::multi_buffer rbuffer;
         boost::beast::multi_buffer wbuffer;
-        std::string lstr;
-
-        std::atomic_int in_flight{0};
-
-        bool once = false;
 
         bool async_read = false;
         bool async_write = false;
