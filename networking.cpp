@@ -36,21 +36,6 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
 {
     try
     {
-        /*boost::asio::io_context ioc{1};
-
-        auto const address = boost::asio::ip::make_address(saddress);
-
-        tcp::socket* socket = nullptr;
-
-        {
-            tcp::acceptor acceptor{ioc, {address, port}};
-
-            socket = new tcp::socket{ioc};
-
-            acceptor.accept(*socket);
-            accepted = true;
-        }*/
-
         websocket::stream<tcp::socket> ws{std::move(socket)};
 
         boost::asio::ip::tcp::no_delay nagle(true);
@@ -103,20 +88,12 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
                         }
                         else
                         {
-                            //ws.write(boost::asio::buffer(next.data));
-
-                            //wbuffer = boost::asio::buffer(next.data);
-
                             async_write = true;
-
-                            //wbuffer = boost::asio::dynamic_buffer(next.data);
 
                             wbuffer.consume(wbuffer.size());
 
                             size_t n = buffer_copy(wbuffer.prepare(next.data.size()), boost::asio::buffer(next.data));
                             wbuffer.commit(n);
-
-                            //std::cout << "WRITING " << next.data << std::endl;
 
                             ws.async_write(wbuffer.data(), [&](boost::system::error_code, std::size_t)
                                            {
@@ -178,50 +155,6 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 {
     auto const address = boost::asio::ip::make_address(saddress);
 
-    /*boost::asio::io_context ioc{1};
-    auto const address = boost::asio::ip::make_address(saddress);
-
-    bool has_async = false;
-
-    while(1)
-    {
-        tcp::acceptor acceptor{ioc, {address, port}};
-        for(;;)
-        {
-            try
-            {
-                if(!has_async)
-                {
-                    tcp::socket* socket = new tcp::socket{ioc};
-
-                    has_async = true;
-
-                    // Block until we get a connection
-                    acceptor.async_accept(*socket, [&](boost::system::error_code)
-                    {
-                        std::thread(std::bind(
-                        &server_session,
-                        std::ref(conn),
-                        std::ref(ioc),
-                        std::ref(*socket))).detach();
-
-                        has_async = false;
-                    });
-                }
-
-                ioc.run();
-
-                Sleep(1);
-
-                //std::cout << "postrun\n";
-            }
-            catch(...)
-            {
-                std::cout << "Received exception in server thread";
-            }
-        }
-    }*/
-
     std::atomic_bool accepted = true;
     boost::asio::io_context acceptor_context{1};
 
@@ -229,15 +162,6 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 
     while(1)
     {
-        /*if(accepted)
-        {
-            accepted = false;
-
-
-
-            std::thread(server_session, std::ref(conn), saddress, port, std::ref(accepted)).detach();
-        }*/
-
         boost::asio::io_context* next_context = new boost::asio::io_context{1};
 
         tcp::socket* socket = new tcp::socket{*next_context};
@@ -296,8 +220,6 @@ void client_thread(connection& conn, std::string address, uint16_t port)
                         while(conn.write_queue.size() > 0)
                         {
                             write_data next = conn.write_queue.front();
-
-                            //ws.write(boost::asio::buffer(next.data));
 
                             wbuffer.consume(wbuffer.size());
 
