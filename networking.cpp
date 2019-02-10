@@ -293,8 +293,9 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
                     });
                 }
 
-
                 ioc.run();
+
+                Sleep(1);
 
                 // Launch the session, transferring ownership of the socket
                 /*std::thread{std::bind(
