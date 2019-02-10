@@ -125,6 +125,7 @@ server_session(connection& conn, std::string saddress, uint16_t port, std::atomi
                                            });
 
                             conn.write_queue.erase(it);
+                            break;
                         }
                     }
                 }
@@ -334,9 +335,9 @@ void client_thread(connection& conn, std::string address, uint16_t port)
             Sleep(1);
         }
     }
-    catch(...)
+    catch(std::exception& e)
     {
-        std::cout << "exception in client write outer\n";
+        std::cout << "exception in client write outer " << e.what() << std::endl;
     }
 }
 
