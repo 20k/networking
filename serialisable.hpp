@@ -3,6 +3,7 @@
 
 #include <nlohmann/json.hpp>
 #include <type_traits>
+#include <vec/vec.hpp>
 
 struct serialisable
 {
@@ -10,6 +11,52 @@ struct serialisable
 
     static size_t time_ms();
 };
+
+inline
+void do_serialise(nlohmann::json& data, vec2f& in, const std::string& name, bool encode)
+{
+    if(encode)
+    {
+        data[name]["x"] = in.x();
+        data[name]["y"] = in.y();
+    }
+    else
+    {
+        if(data.count(name) == 0)
+        {
+            in = vec2f();
+        }
+        else
+        {
+            in.x() = data[name]["x"];
+            in.y() = data[name]["y"];
+        }
+    }
+}
+
+inline
+void do_serialise(nlohmann::json& data, vec3f& in, const std::string& name, bool encode)
+{
+    if(encode)
+    {
+        data[name]["x"] = in.x();
+        data[name]["y"] = in.y();
+        data[name]["z"] = in.z();
+    }
+    else
+    {
+        if(data.count(name) == 0)
+        {
+            in = vec3f();
+        }
+        else
+        {
+            in.x() = data[name]["x"];
+            in.y() = data[name]["y"];
+            in.z() = data[name]["z"];
+        }
+    }
+}
 
 template<typename T>
 void do_serialise(nlohmann::json& data, T& in, const std::string& name, bool encode)
@@ -27,7 +74,7 @@ void do_serialise(nlohmann::json& data, T& in, const std::string& name, bool enc
         }
         else
         {
-            if(data.count(name) == 0)
+            if(data.find(name) == data.end())
             {
                 in = T();
             }
@@ -39,7 +86,16 @@ void do_serialise(nlohmann::json& data, T& in, const std::string& name, bool enc
     }
 }
 
-#define DO_SERIALISE(x){do_serialise(data, x, #x, encode);}
+template<typename T>
+void do_serialise(nlohmann::json& data, std::vector<T>& in, const std::string& name, bool encode)
+{
+    for(int i=0; i < (int)in.size(); i++)
+    {
+        do_serialise(data[name], in[i], std::to_string(i), encode);
+    }
+}
+
+#define DO_SERIALISE(x){do_serialise(data, x, std::string(#x), encode);}
 
 struct test_serialisable : serialisable
 {
