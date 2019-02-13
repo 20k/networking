@@ -60,8 +60,11 @@ struct connection
     {
         nlohmann::json ret = serialise(data);
 
+        //std::vector<uint8_t> cb = nlohmann::json::to_cbor(ret);
+
         write_data dat;
         dat.id = id;
+        //dat.data = std::string(cb.begin(), cb.end());
         dat.data = ret.dump();
 
         write_to(dat);
@@ -129,5 +132,155 @@ void client_serialise(nlohmann::json& data, T& in, const std::string& name, bool
         return;
     }
 }
+
+template<typename T>
+struct delta_container : serialisable
+{
+    T c;
+
+    using value_type = typename T::value_type;
+
+    std::vector<value_type> d;
+
+    void push_back(value_type&& u)
+    {
+        c.push_back(u);
+
+        d.push_back(u);
+    }
+
+    auto begin()
+    {
+        return c.begin();
+    }
+
+    auto end()
+    {
+        return c.end();
+    }
+
+    template<typename U>
+    auto erase(U&& u)
+    {
+        return c.erase(u);
+    }
+
+    auto size()
+    {
+        return c.size();
+    }
+
+    auto& operator[](size_t idx){return c[idx];}
+
+    virtual void serialise(nlohmann::json& data, bool encode) override
+    {
+        if(encode)
+        {
+            if(d.size() == 0)
+                return;
+
+            DO_SERIALISE(d);
+            d.clear();
+        }
+        else
+        {
+            DO_SERIALISE(d);
+            normalise();
+
+            //if(d.size() != 0)
+            //std::cout << "ds " << d.size() << std::endl;
+        }
+    }
+
+    void normalise()
+    {
+        for(auto& i : d)
+        {
+            c.push_back(i);
+        }
+
+        d.clear();
+    }
+};
+
+template<typename T>
+inline
+std::shared_ptr<T>& get_tls_ptr(size_t id)
+{
+    thread_local static std::map<size_t, std::shared_ptr<T>> tls_pointer_map;
+
+    std::shared_ptr<T>& ptr = tls_pointer_map[id];
+
+    if(!ptr)
+    {
+        ptr = std::make_shared<T>();
+    }
+
+    return ptr;
+}
+
+inline
+size_t get_next_persistent_id()
+{
+    thread_local static size_t gpid = 0;
+
+    return gpid++;
+}
+
+template<typename T>
+struct persistent : serialisable
+{
+    size_t pid = 0;
+
+    persistent()
+    {
+        pid = get_next_persistent_id();
+    }
+
+    T& operator*()
+    {
+        std::shared_ptr<T>& ptr = get_tls_ptr<T>(pid);
+
+        return *ptr.get();
+    }
+
+    T* operator->()
+    {
+        std::shared_ptr<T>& ptr = get_tls_ptr<T>(pid);
+
+        return ptr.get();
+    }
+
+    virtual void serialise(nlohmann::json& data, bool encode) override
+    {
+        DO_SERIALISE(pid);
+
+        std::shared_ptr<T>& ptr = get_tls_ptr<T>(pid);
+
+        T* real_ptr = ptr.get();
+
+        DO_SERIALISE(real_ptr);
+    }
+
+    persistent(const persistent<T>& other)
+    {
+        pid = get_next_persistent_id();
+
+        std::shared_ptr<T>& p1 = get_tls_ptr<T>(pid);
+        std::shared_ptr<T>& p2 = get_tls_ptr<T>(other.pid);
+
+        *p1.get() = *p2.get();
+    }
+
+    persistent<T>& operator=(const persistent<T>& other)
+    {
+        std::shared_ptr<T>& p1 = get_tls_ptr<T>(pid);
+        std::shared_ptr<T>& p2 = get_tls_ptr<T>(other.pid);
+
+        *p1.get() = *p2.get();
+
+        return *this;
+    }
+};
 
 #endif // NETWORKING_HPP_INCLUDED
