@@ -87,6 +87,14 @@ void do_serialise(nlohmann::json& data, T& in, const std::string& name, bool enc
 }
 
 template<typename T>
+void do_serialise(nlohmann::json& data, T*& in, const std::string& name, bool encode)
+{
+    assert(in);
+
+    do_serialise(data[name], *in, name, encode);
+}
+
+template<typename T>
 void do_serialise(nlohmann::json& data, std::vector<T>& in, const std::string& name, bool encode)
 {
     for(int i=0; i < (int)in.size(); i++)
