@@ -119,7 +119,7 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
                 }
 
                 if(async_read || async_write)
-                    socket_ioc.poll_one();
+                    socket_ioc.poll();
             }
             catch(...)
             {
@@ -218,30 +218,28 @@ void client_thread(connection& conn, std::string address, uint16_t port)
         {
             try
             {
+                if(!async_write)
                 {
                     std::lock_guard guard(conn.mut);
 
-                    if(!async_write)
+                    while(conn.write_queue.size() > 0)
                     {
-                        while(conn.write_queue.size() > 0)
-                        {
-                            write_data next = conn.write_queue.front();
+                        write_data next = conn.write_queue.front();
 
-                            wbuffer.consume(wbuffer.size());
+                        wbuffer.consume(wbuffer.size());
 
-                            size_t n = buffer_copy(wbuffer.prepare(next.data.size()), boost::asio::buffer(next.data));
-                            wbuffer.commit(n);
+                        size_t n = buffer_copy(wbuffer.prepare(next.data.size()), boost::asio::buffer(next.data));
+                        wbuffer.commit(n);
 
-                            conn.write_queue.erase(conn.write_queue.begin());
+                        conn.write_queue.erase(conn.write_queue.begin());
 
-                            ws.async_write(wbuffer.data(), [&](boost::system::error_code, std::size_t)
-                                           {
-                                                async_write = false;
-                                           });
+                        ws.async_write(wbuffer.data(), [&](boost::system::error_code, std::size_t)
+                                       {
+                                            async_write = false;
+                                       });
 
-                            async_write = true;
-                            break;
-                        }
+                        async_write = true;
+                        break;
                     }
                 }
 
@@ -273,7 +271,7 @@ void client_thread(connection& conn, std::string address, uint16_t port)
             }
 
             if(async_read || async_write)
-                ioc.poll_one();
+                ioc.poll();
 
             if(!async_read && !async_write)
                 Sleep(1);
