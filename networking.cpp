@@ -265,11 +265,15 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
 void connection::host(const std::string& address, uint16_t port)
 {
+    thread_is_server = true;
+
     thrd.emplace_back(server_thread, std::ref(*this), address, port);
 }
 
 void connection::connect(const std::string& address, uint16_t port)
 {
+    thread_is_client = true;
+
     thrd.emplace_back(client_thread, std::ref(*this), address, port);
 }
 

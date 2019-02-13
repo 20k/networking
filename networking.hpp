@@ -36,6 +36,9 @@ struct connection
     std::string read();
     void pop_read();
 
+    static inline thread_local int thread_is_client = 0;
+    static inline thread_local int thread_is_server = 0;
+
     template<typename T>
     writes_data<T> reads_from()
     {
@@ -74,5 +77,54 @@ private:
     bool is_client = true;
     bool is_connected = false;
 };
+
+///I am a variable that lives on the server
+///do not accept client input, aka don't decode
+template<typename T>
+inline
+void server_serialise(nlohmann::json& data, T& in, const std::string& name, bool encode)
+{
+    if(connection::thread_is_server)
+    {
+        if(!encode)
+            return;
+
+        do_serialise(data, in, name, encode);
+        return;
+    }
+
+    if(connection::thread_is_client)
+    {
+        if(encode)
+            return;
+
+        do_serialise(data, in, name, encode);
+        return;
+    }
+}
+
+///lives on the client, networked to server
+template<typename T>
+inline
+void client_serialise(nlohmann::json& data, T& in, const std::string& name, bool encode)
+{
+    if(connection::thread_is_server)
+    {
+        if(encode)
+            return;
+
+        do_serialise(data, in, name, encode);
+        return;
+    }
+
+    if(connection::thread_is_client)
+    {
+        if(!encode)
+            return;
+
+        do_serialise(data, in, name, encode);
+        return;
+    }
+}
 
 #endif // NETWORKING_HPP_INCLUDED

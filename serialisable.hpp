@@ -95,6 +95,7 @@ void do_serialise(nlohmann::json& data, std::vector<T>& in, const std::string& n
     }
 }
 
+
 #define DO_SERIALISE(x){do_serialise(data, x, std::string(#x), encode);}
 
 struct test_serialisable : serialisable
