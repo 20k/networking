@@ -118,7 +118,8 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
                     async_read = true;
                 }
 
-                socket_ioc.poll();
+                if(async_read || async_write)
+                    socket_ioc.poll_one();
             }
             catch(...)
             {
@@ -126,7 +127,8 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
                 break;
             }
 
-            Sleep(1);
+            if(!async_read && !async_write)
+                Sleep(1);
         }
     }
     catch(boost::system::system_error const& se)
@@ -270,9 +272,11 @@ void client_thread(connection& conn, std::string address, uint16_t port)
                 std::cout << "exception in client write\n";
             }
 
-            ioc.poll();
+            if(async_read || async_write)
+                ioc.poll_one();
 
-            Sleep(1);
+            if(!async_read && !async_write)
+                Sleep(1);
         }
     }
     catch(std::exception& e)
