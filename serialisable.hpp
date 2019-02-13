@@ -7,9 +7,11 @@
 
 struct serialisable
 {
-    virtual void serialise(nlohmann::json& data, bool encode);
+    virtual void serialise(nlohmann::json& data, bool encode){}
 
     static size_t time_ms();
+
+    virtual ~serialisable();
 };
 
 inline
@@ -48,6 +50,8 @@ void do_serialise(nlohmann::json& data, vec3f& in, const std::string& name, bool
         if(data.count(name) == 0)
         {
             in = vec3f();
+
+            std::cout << "MDAT " << data << " NAME " << name << std::endl;
         }
         else
         {
@@ -91,15 +95,37 @@ void do_serialise(nlohmann::json& data, T*& in, const std::string& name, bool en
 {
     assert(in);
 
-    do_serialise(data[name], *in, name, encode);
+    do_serialise(data, *in, name, encode);
 }
 
 template<typename T>
 void do_serialise(nlohmann::json& data, std::vector<T>& in, const std::string& name, bool encode)
 {
-    for(int i=0; i < (int)in.size(); i++)
+    if(encode)
     {
-        do_serialise(data[name], in[i], std::to_string(i), encode);
+        for(int i=0; i < (int)in.size(); i++)
+        {
+            do_serialise(data[name], in[i], std::to_string(i), encode);
+        }
+    }
+    else
+    {
+        in = std::vector<T>();
+
+        std::map<int, nlohmann::json> dat;
+
+        for(auto& info : data[name].items())
+        {
+            dat[std::stoi(info.key())] = info.value();
+        }
+
+        for(int i=0; i < (int)dat.size(); i++)
+        {
+            T next = T();
+            do_serialise(data[name], next, std::to_string(i), encode);
+
+            in.push_back(next);
+        }
     }
 }
 

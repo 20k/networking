@@ -25,6 +25,8 @@ fail(boost::system::error_code ec, char const* what)
 void
 server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socket& socket)
 {
+    uint64_t id = -1;
+
     try
     {
         websocket::stream<tcp::socket> ws{std::move(socket)};
@@ -41,12 +43,13 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
 
         ws.accept();
 
-        uint64_t id = conn.id++;
+        id = conn.id++;
 
         {
             std::lock_guard guard(conn.mut);
 
             conn.new_clients.push_back(id);
+            conn.connected_clients.push_back(id);
         }
 
         boost::beast::multi_buffer rbuffer;
@@ -120,6 +123,7 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
             catch(...)
             {
                 std::cout << "exception\n";
+                break;
             }
 
             Sleep(1);
@@ -134,6 +138,20 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
     catch(std::exception const& e)
     {
         std::cerr << "Error: " << e.what() << std::endl;
+    }
+
+    {
+        std::lock_guard guard(conn.mut);
+
+        for(int i=0; i < (int)conn.connected_clients.size(); i++)
+        {
+            if(conn.connected_clients[i] == id)
+            {
+                conn.connected_clients.erase(conn.connected_clients.begin() + i);
+                i--;
+                continue;
+            }
+        }
     }
 }
 
@@ -346,4 +364,11 @@ void connection::pop_new_client()
     {
         new_clients.erase(new_clients.begin());
     }
+}
+
+std::vector<uint64_t> connection::clients()
+{
+    std::lock_guard guard(mut);
+
+    return connected_clients;
 }

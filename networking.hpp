@@ -31,6 +31,8 @@ struct connection
     std::optional<uint64_t> has_new_client();
     void pop_new_client();
 
+    std::vector<uint64_t> clients();
+
     bool has_read();
     write_data read_from();
     std::string read();
@@ -71,6 +73,7 @@ struct connection
 
     std::atomic_int id = 0;
     std::vector<uint64_t> new_clients;
+    std::vector<uint64_t> connected_clients;
     std::vector<std::thread> thrd;
 
 private:
