@@ -46,7 +46,7 @@ struct connection
     {
         write_data data = read_from();
 
-        nlohmann::json nl = nlohmann::json::parse(data.data);
+        nlohmann::json nl = nlohmann::json::from_cbor(data.data);
 
         T ret = deserialise<T>(nl);
 
@@ -60,12 +60,12 @@ struct connection
     {
         nlohmann::json ret = serialise(data);
 
-        //std::vector<uint8_t> cb = nlohmann::json::to_cbor(ret);
+        std::vector<uint8_t> cb = nlohmann::json::to_cbor(ret);
 
         write_data dat;
         dat.id = id;
-        //dat.data = std::string(cb.begin(), cb.end());
-        dat.data = ret.dump();
+        dat.data = std::string(cb.begin(), cb.end());
+        //dat.data = ret.dump();
 
         write_to(dat);
     }
