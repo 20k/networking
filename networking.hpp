@@ -262,7 +262,7 @@ struct persistent : serialisable
         DO_SERIALISE(real_ptr);
     }
 
-    persistent(const persistent<T>& other)
+    /*persistent(const persistent<T>& other)
     {
         pid = get_next_persistent_id();
 
@@ -280,7 +280,7 @@ struct persistent : serialisable
         *p1.get() = *p2.get();
 
         return *this;
-    }
+    }*/
 };
 
 #endif // NETWORKING_HPP_INCLUDED
