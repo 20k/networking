@@ -12,6 +12,7 @@
 #include <memory>
 #include <thread>
 #include <vector>
+#include <SFML/System/Sleep.hpp>
 
 using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
 namespace websocket = boost::beast::websocket;  // from <boost/beast/websocket.hpp>
@@ -59,9 +60,6 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
         bool async_write = false;
 
         bool should_continue = false;
-        int num_continues = 0;
-
-        int num_writes = 0;
 
         while(1)
         {
@@ -70,8 +68,6 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
                 if(!async_write)
                 {
                     std::lock_guard guard(conn.mut);
-
-                    num_writes = 0;
 
                     for(auto it = conn.write_queue.begin(); it != conn.write_queue.end();)
                     {
@@ -95,13 +91,9 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
                                            {
                                                 async_write = false;
                                                 should_continue = true;
-                                                num_continues++;
                                            });
 
                             should_continue = true;
-                            num_writes++;
-                            num_continues++;
-
                             conn.write_queue.erase(it);
                             break;
                         }
@@ -126,12 +118,10 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
 
                                       async_read = false;
                                       should_continue = true;
-                                      num_continues++;
                                   });
 
                     async_read = true;
                     should_continue = true;
-                    num_continues++;
                 }
 
                 if(async_read || async_write)
@@ -140,22 +130,11 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
                     socket_ioc.restart();
                 }
 
-                /*bool had_write = (num_writes > 0 && !async_write) || async_write;
-
-                if(!async_read || had_write || should_continue)
-                    continue;*/
-
-                if(num_continues > 0)
-                {
-                    num_continues--;
-                    continue;
-                }
-
-                /*if(should_continue)
+                if(should_continue)
                 {
                     should_continue = false;
                     continue;
-                }*/
+                }
             }
             catch(...)
             {
@@ -163,7 +142,7 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
                 break;
             }
 
-            Sleep(1);
+            sf::sleep(sf::milliseconds(1));
         }
     }
     catch(boost::system::system_error const& se)
@@ -211,7 +190,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 
         std::thread(server_session, std::ref(conn), std::ref(*next_context), std::ref(*socket)).detach();
 
-        Sleep(1);
+        sf::sleep(sf::milliseconds(1));;
     }
 }
 
@@ -249,8 +228,6 @@ void client_thread(connection& conn, std::string address, uint16_t port)
         bool async_write = false;
         bool async_read = false;
 
-        int num_writes = 0;
-
         bool should_continue = false;
 
         int num_continues = 0;
@@ -262,8 +239,6 @@ void client_thread(connection& conn, std::string address, uint16_t port)
                 if(!async_write)
                 {
                     std::lock_guard guard(conn.mut);
-
-                    num_writes = conn.write_queue.size();
 
                     while(conn.write_queue.size() > 0)
                     {
@@ -280,12 +255,10 @@ void client_thread(connection& conn, std::string address, uint16_t port)
                                        {
                                             async_write = false;
                                             should_continue = true;
-                                            num_continues++;
                                        });
 
                         async_write = true;
                         should_continue = true;
-                        num_continues++;
                         break;
                     }
                 }
@@ -308,12 +281,10 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
                                       async_read = false;
                                       should_continue = true;
-                                      num_continues++;
                                   });
 
                     async_read = true;
                     should_continue = true;
-                    num_continues++;
                 }
             }
             catch(...)
@@ -327,35 +298,13 @@ void client_thread(connection& conn, std::string address, uint16_t port)
                 ioc.restart();
             }
 
-            /*bool had_write = (num_writes > 0 && !async_write) || async_write;
-
-            if(!async_read || had_write || should_continue)
-                continue;*/
-
-            /*int queue_size = 0;
-
-            {
-                std::lock_guard guard(conn.mut);
-
-                queue_size = conn.write_queue.size();
-            }
-
-            if(queue_size > 0)
-                continue;*/
-
-            if(num_continues > 0)
-            {
-                num_continues--;
-                continue;
-            }
-
-            /*if(should_continue)
+            if(should_continue)
             {
                 should_continue = false;
                 continue;
-            }*/
+            }
 
-            Sleep(1);
+            sf::sleep(sf::milliseconds(1));
         }
     }
     catch(std::exception& e)
