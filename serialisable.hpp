@@ -15,77 +15,41 @@ struct serialisable
 };
 
 inline
-void do_serialise(nlohmann::json& data, vec2f& in, const std::string& name, bool encode)
+size_t get_next_persistent_id()
 {
-    if(encode)
-    {
-        data[name]["x"] = in.x();
-        data[name]["y"] = in.y();
-    }
-    else
-    {
-        if(data.count(name) == 0)
-        {
-            in = vec2f();
-        }
-        else
-        {
-            in.x() = data[name]["x"];
-            in.y() = data[name]["y"];
-        }
-    }
+    thread_local static size_t gpid = 0;
+
+    return gpid++;
 }
 
+struct owned
+{
+    size_t pid = get_next_persistent_id();
+};
+
+template<int N, typename T>
 inline
-void do_serialise(nlohmann::json& data, vec3f& in, const std::string& name, bool encode)
+void do_serialise(nlohmann::json& data, vec<N, T>& in, const std::string& name, bool encode)
 {
     if(encode)
     {
-        data[name]["x"] = in.x();
-        data[name]["y"] = in.y();
-        data[name]["z"] = in.z();
+        for(int i=0; i < N; i++)
+        {
+            data[name][i] = in.v[i];
+        }
     }
     else
     {
         if(data.count(name) == 0)
         {
-            in = vec3f();
-
-            std::cout << "MDAT " << data << " NAME " << name << std::endl;
+            in = vec<N, T>();
         }
         else
         {
-            in.x() = data[name]["x"];
-            in.y() = data[name]["y"];
-            in.z() = data[name]["z"];
-        }
-    }
-}
-
-inline
-void do_serialise(nlohmann::json& data, vec4f& in, const std::string& name, bool encode)
-{
-    if(encode)
-    {
-        data[name]["x"] = in.x();
-        data[name]["y"] = in.y();
-        data[name]["z"] = in.z();
-        data[name]["w"] = in.w();
-    }
-    else
-    {
-        if(data.count(name) == 0)
-        {
-            in = vec4f();
-
-            std::cout << "MDAT2 " << data << " NAME " << name << std::endl;
-        }
-        else
-        {
-            in.x() = data[name]["x"];
-            in.y() = data[name]["y"];
-            in.z() = data[name]["z"];
-            in.w() = data[name]["w"];
+            for(int i=0; i < N; i++)
+            {
+                in.v[i] = data[name][i];
+            }
         }
     }
 }

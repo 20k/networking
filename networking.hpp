@@ -219,18 +219,18 @@ std::shared_ptr<T>& get_tls_ptr(size_t id)
     return ptr;
 }
 
-inline
-size_t get_next_persistent_id()
-{
-    thread_local static size_t gpid = 0;
-
-    return gpid++;
-}
 
 ///ok so these two classes are compatible with each other
 ///the idea is that the owning one sets itself to be host_persistent by inheriting
 ///then serialises pid
 ///then the child one uses persistent<type>
+
+///maybe if host_persistent<> kept a far away version
+///then whenever we receive a new one, we copy over data members from far away to us
+///and vice versa
+
+///maybe just have a unique base which contains a _pid and integrate it right into
+///serialisation so it does the detection and stuff
 template<typename T>
 struct persistent : serialisable
 {
