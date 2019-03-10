@@ -42,15 +42,23 @@ struct connection
     static inline thread_local int thread_is_server = 0;
 
     template<typename T>
-    writes_data<T> reads_from()
+    writes_data<T> reads_from(T& old)
     {
         write_data data = read_from();
 
         nlohmann::json nl = nlohmann::json::from_cbor(data.data);
 
-        T ret = deserialise<T>(nl);
+        deserialise<T>(nl, old);
 
-        return {data.id, ret};
+        return {data.id, old};
+    }
+
+
+    template<typename T>
+    writes_data<T> reads_from()
+    {
+        T none = T();
+        return reads_from(none);
     }
 
     void write_to(const write_data& data);
