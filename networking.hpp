@@ -203,22 +203,6 @@ struct delta_container : serialisable
     }
 };
 
-template<typename T>
-inline
-std::shared_ptr<T>& get_tls_ptr(size_t id)
-{
-    thread_local static std::map<size_t, std::shared_ptr<T>> tls_pointer_map;
-
-    std::shared_ptr<T>& ptr = tls_pointer_map[id];
-
-    if(!ptr)
-    {
-        ptr = std::make_shared<T>();
-    }
-
-    return ptr;
-}
-
 
 ///ok so these two classes are compatible with each other
 ///the idea is that the owning one sets itself to be host_persistent by inheriting

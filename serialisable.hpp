@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 #include <type_traits>
 #include <vec/vec.hpp>
+#include <memory>
 
 struct serialisable
 {
@@ -24,8 +25,24 @@ size_t get_next_persistent_id()
 
 struct owned
 {
-    size_t pid = get_next_persistent_id();
+    size_t _pid = get_next_persistent_id();
 };
+
+template<typename T>
+inline
+std::shared_ptr<T>& get_tls_ptr(size_t id)
+{
+    thread_local static std::map<size_t, std::shared_ptr<T>> tls_pointer_map;
+
+    std::shared_ptr<T>& ptr = tls_pointer_map[id];
+
+    if(!ptr)
+    {
+        ptr = std::make_shared<T>();
+    }
+
+    return ptr;
+}
 
 template<int N, typename T>
 inline
@@ -60,6 +77,11 @@ void do_serialise(nlohmann::json& data, T& in, const std::string& name, bool enc
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
         in.serialise(data[name], encode);
+
+        if constexpr(std::is_base_of_v<owned, T>)
+        {
+            data[name]["_pid"] = in._pid;
+        }
     }
 
     if constexpr(!std::is_base_of_v<serialisable, T>)
@@ -77,6 +99,11 @@ void do_serialise(nlohmann::json& data, T& in, const std::string& name, bool enc
             else
             {
                 in = data[name];
+
+                if constexpr(std::is_base_of_v<owned, T>)
+                {
+                    in._pid = data[name]["_pid"];
+                }
             }
         }
     }
@@ -102,21 +129,75 @@ void do_serialise(nlohmann::json& data, std::vector<T>& in, const std::string& n
     }
     else
     {
-        in = std::vector<T>();
-
-        std::map<int, nlohmann::json> dat;
-
-        for(auto& info : data[name].items())
+        if constexpr(!std::is_base_of_v<owned, T>)
         {
-            dat[std::stoi(info.key())] = info.value();
+            in = std::vector<T>();
+
+            std::map<int, nlohmann::json> dat;
+
+            for(auto& info : data[name].items())
+            {
+                dat[std::stoi(info.key())] = info.value();
+            }
+
+            for(int i=0; i < (int)dat.size(); i++)
+            {
+                T next = T();
+                do_serialise(data[name], next, std::to_string(i), encode);
+
+                in.push_back(next);
+            }
         }
 
-        for(int i=0; i < (int)dat.size(); i++)
+        if constexpr(std::is_base_of_v<owned, T>)
         {
-            T next = T();
-            do_serialise(data[name], next, std::to_string(i), encode);
+            //std::map<size_t, bool> received;
+            std::map<size_t, bool> has;
 
-            in.push_back(next);
+            std::map<int, bool> dat;
+
+            std::map<size_t, T*> old_element_map;
+
+            for(auto& i : in)
+            {
+                has[i._pid] = true;
+                old_element_map[i._pid] = &i;
+            }
+
+            for(auto& info : data[name].items())
+            {
+                //received[info.value()["_pid"]] = true;
+                dat[std::stoi(info.key())] = true;
+            }
+
+            ///remove any elements not received this tick
+            /*in.erase(std::remove_if(in.begin(), in.end(), [&](T& val)
+            {
+                return !received[val._pid];
+            }));*/
+
+            std::vector<T> new_element_vector;
+
+            for(int i=0; i < (int)dat.size(); i++)
+            {
+                size_t _pid = data[name][std::to_string(i)]["_pid"];
+
+                if(has[_pid])
+                {
+                    new_element_vector.push_back(old_element_map[_pid]);
+                }
+                else
+                {
+                    T nelem = T();
+                    nelem._pid = _pid;
+
+                    do_serialise(data[name], nelem, std::to_string(i), encode);
+
+                    new_element_vector.push_back(nelem);
+                }
+            }
+
+            in = new_element_vector;
         }
     }
 }
