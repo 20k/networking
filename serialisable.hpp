@@ -184,7 +184,9 @@ void do_serialise(nlohmann::json& data, std::vector<T>& in, const std::string& n
 
                 if(has[_pid])
                 {
-                    new_element_vector.push_back(old_element_map[_pid]);
+                    do_serialise(data[name], *old_element_map[_pid], std::to_string(i), encode);
+
+                    new_element_vector.push_back(*old_element_map[_pid]);
                 }
                 else
                 {
