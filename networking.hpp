@@ -227,39 +227,43 @@ size_t get_next_persistent_id()
     return gpid++;
 }
 
+///ok so these two classes are compatible with each other
+///the idea is that the owning one sets itself to be host_persistent by inheriting
+///then serialises pid
+///then the child one uses persistent<type>
 template<typename T>
 struct persistent : serialisable
 {
-    size_t pid = 0;
+    size_t _pid = 0;
 
     persistent()
     {
-        pid = get_next_persistent_id();
+        _pid = get_next_persistent_id();
     }
 
     T& operator*()
     {
-        std::shared_ptr<T>& ptr = get_tls_ptr<T>(pid);
+        std::shared_ptr<T>& sptr = get_tls_ptr<T>(_pid);
 
-        return *ptr.get();
+        return *sptr.get();
     }
 
     T* operator->()
     {
-        std::shared_ptr<T>& ptr = get_tls_ptr<T>(pid);
+        std::shared_ptr<T>& sptr = get_tls_ptr<T>(_pid);
 
-        return ptr.get();
+        return sptr.get();
     }
 
     virtual void serialise(nlohmann::json& data, bool encode) override
     {
-        DO_SERIALISE(pid);
+        DO_SERIALISE(_pid);
 
-        std::shared_ptr<T>& ptr = get_tls_ptr<T>(pid);
+        std::shared_ptr<T>& sptr = get_tls_ptr<T>(_pid);
 
-        T* real_ptr = ptr.get();
+        T* ptr = sptr.get();
 
-        DO_SERIALISE(real_ptr);
+        ptr->serialise(data, encode);
     }
 
     /*persistent(const persistent<T>& other)
@@ -281,6 +285,22 @@ struct persistent : serialisable
 
         return *this;
     }*/
+};
+
+template<typename T>
+struct host_persistent : virtual serialisable
+{
+    size_t _pid = 0;
+
+    host_persistent()
+    {
+        _pid = get_next_persistent_id();
+    }
+
+    virtual void serialise(nlohmann::json& data, bool encode) override
+    {
+        DO_SERIALISE(_pid);
+    }
 };
 
 #endif // NETWORKING_HPP_INCLUDED
