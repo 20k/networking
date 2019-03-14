@@ -280,7 +280,7 @@ nlohmann::json load_from_file(const std::string& fname)
     std::string str((std::istreambuf_iterator<char>(t)),
                      std::istreambuf_iterator<char>());
 
-    return nlohmann::json::parse(fname);
+    return nlohmann::json::parse(str);
 }
 
 #endif // SERIALISABLE_HPP_INCLUDED
