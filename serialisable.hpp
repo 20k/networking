@@ -268,9 +268,9 @@ void deserialise(nlohmann::json& in, T& dat)
 inline
 void save_to_file(const std::string& fname, const nlohmann::json& data)
 {
-    std::string input = data.dump();
+    std::vector<unsigned char> input = nlohmann::json::to_cbor(data);
     std::ofstream out(fname, std::ios::binary);
-    out << input;
+    out << std::string(input.begin(), input.end());
 }
 
 inline
@@ -280,7 +280,7 @@ nlohmann::json load_from_file(const std::string& fname)
     std::string str((std::istreambuf_iterator<char>(t)),
                      std::istreambuf_iterator<char>());
 
-    return nlohmann::json::parse(str);
+    return nlohmann::json::from_cbor(str);
 }
 
 #endif // SERIALISABLE_HPP_INCLUDED
