@@ -6,6 +6,7 @@
 #include <vec/vec.hpp>
 #include <memory>
 #include <fstream>
+#include <map>
 
 struct serialisable
 {
@@ -73,6 +74,7 @@ void do_serialise(nlohmann::json& data, vec<N, T>& in, const std::string& name, 
 }
 
 template<typename T>
+inline
 void do_serialise(nlohmann::json& data, T& in, const std::string& name, bool encode)
 {
     if constexpr(std::is_base_of_v<serialisable, T>)
@@ -111,6 +113,7 @@ void do_serialise(nlohmann::json& data, T& in, const std::string& name, bool enc
 }
 
 template<typename T>
+inline
 void do_serialise(nlohmann::json& data, T*& in, const std::string& name, bool encode)
 {
     assert(in);
@@ -119,6 +122,7 @@ void do_serialise(nlohmann::json& data, T*& in, const std::string& name, bool en
 }
 
 template<typename T>
+inline
 void do_serialise(nlohmann::json& data, std::vector<T>& in, const std::string& name, bool encode)
 {
     if(encode)
@@ -201,6 +205,44 @@ void do_serialise(nlohmann::json& data, std::vector<T>& in, const std::string& n
             }
 
             in = new_element_vector;
+        }
+    }
+}
+
+///does not support ownership yet
+template<typename T, typename U>
+inline
+void do_serialise(nlohmann::json& data, std::map<T, U>& in, const std::string& name, bool encode)
+{
+    if(encode)
+    {
+        int idx = 0;
+
+        for(auto& i : in)
+        {
+            do_serialise(data[name][idx], i.first, "f", encode);
+            do_serialise(data[name][idx], i.second, "s", encode);
+
+            idx++;
+        }
+    }
+    else
+    {
+        int idx = 0;
+
+        in.clear();
+
+        for(auto& i : data[name].items())
+        {
+            T first = T();
+            U second = U();
+
+            do_serialise(data[name][idx], first, "f", encode);
+            do_serialise(data[name][idx], second, "s", encode);
+
+            in[first] = second;
+
+            idx++;
         }
     }
 }
