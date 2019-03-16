@@ -220,7 +220,9 @@ void do_serialise(nlohmann::json& data, std::map<T, U>& in, const std::string& n
 
         for(auto& i : in)
         {
-            do_serialise(data[name][idx], i.first, "f", encode);
+            T cstr = i.first;
+
+            do_serialise(data[name][idx], cstr, "f", encode);
             do_serialise(data[name][idx], i.second, "s", encode);
 
             idx++;
@@ -243,6 +245,8 @@ void do_serialise(nlohmann::json& data, std::map<T, U>& in, const std::string& n
             in[first] = second;
 
             idx++;
+
+            (void)i;
         }
     }
 }
