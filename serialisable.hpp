@@ -216,19 +216,18 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 ///does not support ownership yet
 template<typename T, typename U>
 inline
-void do_serialise(nlohmann::json& data, std::map<T, U>& in, const std::string& name, bool encode)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& in, const std::string& name, bool encode)
 {
     if(encode)
     {
         int idx = 0;
 
-
         for(auto& i : in)
         {
             T cstr = i.first;
 
-            do_serialise(data[name][idx], cstr, "f", encode);
-            do_serialise(data[name][idx], i.second, "s", encode);
+            do_serialise(ctx, data[name][idx], cstr, "f", encode);
+            do_serialise(ctx, data[name][idx], i.second, "s", encode);
 
             idx++;
         }
@@ -244,8 +243,8 @@ void do_serialise(nlohmann::json& data, std::map<T, U>& in, const std::string& n
             T first = T();
             U second = U();
 
-            do_serialise(data[name][idx], first, "f", encode);
-            do_serialise(data[name][idx], second, "s", encode);
+            do_serialise(ctx, data[name][idx], first, "f", encode);
+            do_serialise(ctx, data[name][idx], second, "s", encode);
 
             in[first] = second;
 
