@@ -5,6 +5,8 @@
 #include <type_traits>
 #include <vec/vec.hpp>
 #include <memory>
+#include <fstream>
+#include <map>
 
 struct serialise_context
 {
@@ -211,6 +213,49 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
     }
 }
 
+///does not support ownership yet
+template<typename T, typename U>
+inline
+void do_serialise(nlohmann::json& data, std::map<T, U>& in, const std::string& name, bool encode)
+{
+    if(encode)
+    {
+        int idx = 0;
+
+
+        for(auto& i : in)
+        {
+            T cstr = i.first;
+
+            do_serialise(data[name][idx], cstr, "f", encode);
+            do_serialise(data[name][idx], i.second, "s", encode);
+
+            idx++;
+        }
+    }
+    else
+    {
+        int idx = 0;
+
+        in.clear();
+
+        for(auto& i : data[name].items())
+        {
+            T first = T();
+            U second = U();
+
+            do_serialise(data[name][idx], first, "f", encode);
+            do_serialise(data[name][idx], second, "s", encode);
+
+            in[first] = second;
+
+            idx++;
+
+            (void)i;
+        }
+    }
+}
+
 
 #define DO_SERIALISE(x){do_serialise(ctx, data, x, std::string(#x), encode);}
 
@@ -274,6 +319,24 @@ void deserialise(nlohmann::json& in, T& dat)
     {
         dat = (T)in;
     }
+}
+
+inline
+void save_to_file(const std::string& fname, const nlohmann::json& data)
+{
+    std::vector<unsigned char> input = nlohmann::json::to_cbor(data);
+    std::ofstream out(fname, std::ios::binary);
+    out << std::string(input.begin(), input.end());
+}
+
+inline
+nlohmann::json load_from_file(const std::string& fname)
+{
+    std::ifstream t(fname, std::ios::binary);
+    std::string str((std::istreambuf_iterator<char>(t)),
+                     std::istreambuf_iterator<char>());
+
+    return nlohmann::json::from_cbor(str);
 }
 
 #endif // SERIALISABLE_HPP_INCLUDED
