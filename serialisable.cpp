@@ -1,7 +1,7 @@
 #include "serialisable.hpp"
 #include <chrono>
 
-void test_serialisable::serialise(nlohmann::json& data, bool encode)
+void test_serialisable::serialise(serialise_context& ctx, nlohmann::json& data, bool encode)
 {
     DO_SERIALISE(test_datamember);
 }

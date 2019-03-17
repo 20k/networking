@@ -20,7 +20,7 @@ struct net_interpolate : serialisable
     ///timestamps at which those values were received, assumes clock sync
     std::vector<size_t> timestamps;
 
-    void serialise(nlohmann::json& data, bool encode) override
+    SERIALISE_SIGNATURE()
     {
         ///will probably need this for save/load
         if(auth && !encode)

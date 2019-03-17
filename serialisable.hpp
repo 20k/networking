@@ -6,9 +6,16 @@
 #include <vec/vec.hpp>
 #include <memory>
 
+struct serialise_context
+{
+    //nlohmann::json data;
+};
+
+#define SERIALISE_SIGNATURE() virtual void serialise(serialise_context& ctx, nlohmann::json& data, bool encode) override
+
 struct serialisable
 {
-    virtual void serialise(nlohmann::json& data, bool encode){}
+    virtual void serialise(serialise_context& ctx, nlohmann::json& data, bool encode){}
 
     static size_t time_ms();
 
@@ -46,7 +53,7 @@ std::shared_ptr<T>& get_tls_ptr(size_t id)
 
 template<int N, typename T>
 inline
-void do_serialise(nlohmann::json& data, vec<N, T>& in, const std::string& name, bool encode)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, const std::string& name, bool encode)
 {
     if(encode)
     {
@@ -72,11 +79,11 @@ void do_serialise(nlohmann::json& data, vec<N, T>& in, const std::string& name, 
 }
 
 template<typename T>
-void do_serialise(nlohmann::json& data, T& in, const std::string& name, bool encode)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std::string& name, bool encode)
 {
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
-        in.serialise(data[name], encode);
+        in.serialise(ctx, data[name], encode);
 
         if constexpr(std::is_base_of_v<owned, T>)
         {
@@ -110,21 +117,21 @@ void do_serialise(nlohmann::json& data, T& in, const std::string& name, bool enc
 }
 
 template<typename T>
-void do_serialise(nlohmann::json& data, T*& in, const std::string& name, bool encode)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, T*& in, const std::string& name, bool encode)
 {
     assert(in);
 
-    do_serialise(data, *in, name, encode);
+    do_serialise(ctx, data, *in, name, encode);
 }
 
 template<typename T>
-void do_serialise(nlohmann::json& data, std::vector<T>& in, const std::string& name, bool encode)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& in, const std::string& name, bool encode)
 {
     if(encode)
     {
         for(int i=0; i < (int)in.size(); i++)
         {
-            do_serialise(data[name], in[i], std::to_string(i), encode);
+            do_serialise(ctx, data[name], in[i], std::to_string(i), encode);
         }
     }
     else
@@ -143,7 +150,7 @@ void do_serialise(nlohmann::json& data, std::vector<T>& in, const std::string& n
             for(int i=0; i < (int)dat.size(); i++)
             {
                 T next = T();
-                do_serialise(data[name], next, std::to_string(i), encode);
+                do_serialise(ctx, data[name], next, std::to_string(i), encode);
 
                 in.push_back(next);
             }
@@ -184,7 +191,7 @@ void do_serialise(nlohmann::json& data, std::vector<T>& in, const std::string& n
 
                 if(has[_pid])
                 {
-                    do_serialise(data[name], *old_element_map[_pid], std::to_string(i), encode);
+                    do_serialise(ctx, data[name], *old_element_map[_pid], std::to_string(i), encode);
 
                     new_element_vector.push_back(*old_element_map[_pid]);
                 }
@@ -193,7 +200,7 @@ void do_serialise(nlohmann::json& data, std::vector<T>& in, const std::string& n
                     T nelem = T();
                     nelem._pid = _pid;
 
-                    do_serialise(data[name], nelem, std::to_string(i), encode);
+                    do_serialise(ctx, data[name], nelem, std::to_string(i), encode);
 
                     new_element_vector.push_back(nelem);
                 }
@@ -205,11 +212,11 @@ void do_serialise(nlohmann::json& data, std::vector<T>& in, const std::string& n
 }
 
 
-#define DO_SERIALISE(x){do_serialise(data, x, std::string(#x), encode);}
+#define DO_SERIALISE(x){do_serialise(ctx, data, x, std::string(#x), encode);}
 
 struct test_serialisable : serialisable
 {
-    virtual void serialise(nlohmann::json& data, bool encode) override;
+    virtual void serialise(serialise_context& ctx, nlohmann::json& data, bool encode) override;
 
     int test_datamember = 0;
 };
@@ -217,29 +224,32 @@ struct test_serialisable : serialisable
 template<typename T>
 nlohmann::json serialise(T& in)
 {
-    nlohmann::json ret;
+    serialise_context ctx;
+    nlohmann::json data;
 
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
-        in.serialise(ret, true);
+        in.serialise(ctx, data, true);
     }
 
     if constexpr(!std::is_base_of_v<serialisable, T>)
     {
-        ret = in;
+        data = in;
     }
 
-    return ret;
+    return data;
 }
 
 template<typename T>
 T deserialise(nlohmann::json& in)
 {
+    serialise_context ctx;
+
     T ret;
 
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
-        ret.serialise(in, false);
+        ret.serialise(ctx, in, false);
     }
 
     if constexpr(!std::is_base_of_v<serialisable, T>)
@@ -253,9 +263,11 @@ T deserialise(nlohmann::json& in)
 template<typename T>
 void deserialise(nlohmann::json& in, T& dat)
 {
+    serialise_context ctx;
+
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
-        dat.serialise(in, false);
+        dat.serialise(ctx, in, false);
     }
 
     if constexpr(!std::is_base_of_v<serialisable, T>)

@@ -180,7 +180,7 @@ struct delta_container : serialisable
 
     auto& operator[](size_t idx){return c[idx];}
 
-    virtual void serialise(nlohmann::json& data, bool encode) override
+    SERIALISE_SIGNATURE()
     {
         if(encode)
         {
@@ -247,7 +247,7 @@ struct persistent : serialisable
         return sptr.get();
     }
 
-    virtual void serialise(nlohmann::json& data, bool encode) override
+    SERIALISE_SIGNATURE()
     {
         DO_SERIALISE(_pid);
 
@@ -255,7 +255,7 @@ struct persistent : serialisable
 
         T* ptr = sptr.get();
 
-        ptr->serialise(data, encode);
+        ptr->serialise(ctx, data, encode);
     }
 
     /*persistent(const persistent<T>& other)
@@ -289,7 +289,7 @@ struct host_persistent : virtual serialisable
         _pid = get_next_persistent_id();
     }
 
-    virtual void serialise(nlohmann::json& data, bool encode) override
+    SERIALISE_SIGNATURE()
     {
         DO_SERIALISE(_pid);
     }
