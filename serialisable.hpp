@@ -14,14 +14,15 @@ struct serialise_context
     nlohmann::json faux; ///fake nlohmann
 
     bool encode = false;
+    bool recurse = false;
 };
 
-#define SERIALISE_SIGNATURE() virtual void serialise(serialise_context& ctx, nlohmann::json& data) override
+#define SERIALISE_SIGNATURE() void serialise(serialise_context& ctx, nlohmann::json& data)
 #define DECLARE_RPC(x) std::vector<nlohmann::json> x ## rpc;
 
 struct serialisable
 {
-    virtual void serialise(serialise_context& ctx, nlohmann::json& data){}
+    //virtual void serialise(serialise_context& ctx, nlohmann::json& data){}
 
     static size_t time_ms();
 
@@ -268,7 +269,7 @@ void do_recurse(serialise_context& ctx, T& in, const std::string& name, const U&
 {
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
-        func(in);
+        //func(in);
 
         in.serialise(ctx, ctx.faux);
     }
@@ -317,7 +318,7 @@ void do_recurse(serialise_context& ctx, std::map<T, U>& in, const std::string& n
 
 struct test_serialisable : serialisable
 {
-    virtual void serialise(serialise_context& ctx, nlohmann::json& data) override;
+    SERIALISE_SIGNATURE();
 
     int test_datamember = 0;
 };

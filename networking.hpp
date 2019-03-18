@@ -64,7 +64,8 @@ struct connection
     void write_to(const write_data& data);
     void write(const std::string& data);
 
-    void writes_to(serialisable& data, uint64_t id)
+    template<typename T>
+    void writes_to(T& data, uint64_t id)
     {
         nlohmann::json ret = serialise(data);
 
