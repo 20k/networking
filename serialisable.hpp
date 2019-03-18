@@ -270,7 +270,7 @@ void do_recurse(serialise_context& ctx, T& in, const std::string& name, const U&
     {
         func(in);
 
-        in.serialise(ctx, ctx.faux, true);
+        in.serialise(ctx, ctx.faux);
     }
 
     if constexpr(!std::is_base_of_v<serialisable, T>)
