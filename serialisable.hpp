@@ -8,6 +8,27 @@
 #include <fstream>
 #include <map>
 
+
+struct serialise_context;
+
+#define SERIALISE_SIGNATURE() virtual void serialise(serialise_context& ctx, nlohmann::json& data) override
+#define DECLARE_RPC(x) std::vector<nlohmann::json> x ## rpc;
+
+#define RPC_SIGNATURE virtual void execute_function(serialise_context& ctx, const std::string& name, nlohmann::json& args) override
+
+#define DO_SERIALISE(x){do_serialise(ctx, data, x, std::string(#x));}
+#define DO_RPC(x){if(name == std::string(#x)){exec_rpc(x, this, args);}
+
+struct serialisable
+{
+    virtual void serialise(serialise_context& ctx, nlohmann::json& data){}
+    virtual void execute_function(serialise_context& ctx, const std::string& name, nlohmann::json& args){}
+
+    static size_t time_ms();
+
+    virtual ~serialisable();
+};
+
 struct serialise_context
 {
     //nlohmann::json data;
@@ -17,17 +38,68 @@ struct serialise_context
     bool recurse = false;
 };
 
-#define SERIALISE_SIGNATURE() void serialise(serialise_context& ctx, nlohmann::json& data)
-#define DECLARE_RPC(x) std::vector<nlohmann::json> x ## rpc;
-
-struct serialisable
+inline
+void args_to_nlohmann_1(nlohmann::json& in, serialise_context& ctx, int& idx)
 {
-    //virtual void serialise(serialise_context& ctx, nlohmann::json& data){}
 
-    static size_t time_ms();
+}
 
-    virtual ~serialisable();
+template<typename T, typename... U>
+inline
+void args_to_nlohmann_1(nlohmann::json& in, serialise_context& ctx, int& idx, T& one, U&... two)
+{
+    if constexpr(std::is_base_of_v<T, serialisable>)
+    {
+        one.serialise(ctx, in[idx]);
+    }
+
+    if constexpr(!std::is_base_of_v<T, serialisable>)
+    {
+        in[idx] = one;
+    }
+
+    idx++;
+
+    args_to_nlohmann_1(in, ctx, idx, two...);
+}
+
+template<typename... T>
+inline
+nlohmann::json args_to_nlohmann(T&... args)
+{
+    nlohmann::json ret;
+    serialise_context ctx;
+    ctx.encode = true;
+
+    int idx = 0;
+    args_to_nlohmann_1(ret, ctx, idx, args...);
+
+    return ret;
+}
+
+struct rpc_data : serialisable
+{
+    size_t id = 0;
+    std::string func;
+    nlohmann::json arg;
+
+    SERIALISE_SIGNATURE();
 };
+
+struct global_serialise_info : serialisable
+{
+    std::vector<rpc_data> data;
+
+    SERIALISE_SIGNATURE();
+};
+
+inline
+global_serialise_info& get_global_serialise_info()
+{
+    thread_local static global_serialise_info inf;
+
+    return inf;
+}
 
 inline
 size_t get_next_persistent_id()
@@ -314,8 +386,6 @@ void do_recurse(serialise_context& ctx, std::map<T, U>& in, const std::string& n
 ///if we're side_2, execute function with those args
 ///will probably have to make weird rpc syntax or something, or an rpc function
 
-#define DO_SERIALISE(x){do_serialise(ctx, data, x, std::string(#x));}
-
 struct test_serialisable : serialisable
 {
     SERIALISE_SIGNATURE();
@@ -398,6 +468,58 @@ nlohmann::json load_from_file(const std::string& fname)
                      std::istreambuf_iterator<char>());
 
     return nlohmann::json::from_cbor(str);
+}
+
+///ok
+///we gotta do pointers basically
+///or each frame, just before checking rpcs, make a map if ids to things that could be rpc'd
+///bit dangerous though if we touch containers
+template<typename T, typename U, typename... V>
+inline
+void rpc(const std::string& func_name, T& obj, U& func, V&... args)
+{
+    global_serialise_info& ser = get_global_serialise_info();
+
+    nlohmann::json narg = args_to_nlohmann(args...);
+
+    rpc_data dat;
+    dat.id = obj._pid;
+    dat.func = func_name;
+    dat.arg = narg;
+
+    ser.data.push_back(dat);
+}
+
+template<typename... T, int N, int M>
+void extract_args(std::tuple<T...>& in_tup, nlohmann::json& args)
+{
+    ///first argument is object, there is an off by one here
+    auto found = decltype(std::get<N+1>(in_tup))();
+
+    deserialise(args[N], found);
+
+    std::get<N+1> = found;
+
+    if constexpr(N == M)
+        return;
+
+    extract_args<T..., N+1, M>(in_tup, args);
+}
+
+
+template<typename C, typename R, typename... Args>
+inline
+void exec_rpc(R(C::*func)(Args...), C& obj, nlohmann::json& args)
+{
+    constexpr int nargs = sizeof...(Args);
+
+    std::tuple<C, Args...> tup_args;
+
+    std::get<0>(tup_args) = obj;
+
+    extract_args<C, Args..., 0, nargs>(tup_args, args);
+
+    std::apply(func, tup_args);
 }
 
 #endif // SERIALISABLE_HPP_INCLUDED
