@@ -8,21 +8,27 @@
 #include <fstream>
 #include <map>
 
-
 struct serialise_context;
 
 #define SERIALISE_SIGNATURE() virtual void serialise(serialise_context& ctx, nlohmann::json& data) override
-#define DECLARE_RPC(x) std::vector<nlohmann::json> x ## rpc;
 
-#define RPC_SIGNATURE virtual void execute_function(serialise_context& ctx, const std::string& name, nlohmann::json& args) override
+#define RPC_SIGNATURE() virtual void execute_function(const std::string& name, nlohmann::json& args) override
+#define HACKY_REGISTRATION() virtual void hacky_registration(std::map<size_t, serialisable*>& omap) override {omap[_pid] = this;}
 
 #define DO_SERIALISE(x){do_serialise(ctx, data, x, std::string(#x));}
-#define DO_RPC(x){if(name == std::string(#x)){exec_rpc(x, this, args);}
+#define DO_RPC(x) do{if(name == std::string(#x)){exec_rpc(x, *this, args);}} while(0)
+
+#define CHECK_RPC_SIGNATURE() virtual void check_rpcs(global_serialise_info& inf) override
+#define CHECK_ALL_RPC() if(auto it = inf.built.find(_pid); it != inf.built.end()){for(rpc_data& dat : it->second){execute_function(dat.func, dat.arg);}}
+
+struct global_serialise_info;
 
 struct serialisable
 {
     virtual void serialise(serialise_context& ctx, nlohmann::json& data){}
-    virtual void execute_function(serialise_context& ctx, const std::string& name, nlohmann::json& args){}
+    virtual void execute_function(const std::string& name, nlohmann::json& args){}
+    virtual void hacky_registration(std::map<size_t, serialisable*>& omap){}
+    virtual void check_rpcs(global_serialise_info& inf){}
 
     static size_t time_ms();
 
@@ -79,7 +85,7 @@ nlohmann::json args_to_nlohmann(T&... args)
 
 struct rpc_data : serialisable
 {
-    size_t id = 0;
+    size_t id = -1;
     std::string func;
     nlohmann::json arg;
 
@@ -88,9 +94,13 @@ struct rpc_data : serialisable
 
 struct global_serialise_info : serialisable
 {
-    std::vector<rpc_data> data;
+    std::vector<rpc_data> all_rpcs;
+
+    std::map<size_t, std::vector<rpc_data>> built;
 
     SERIALISE_SIGNATURE();
+
+    void consume(std::map<size_t, serialisable*>& in);
 };
 
 inline
@@ -476,7 +486,7 @@ nlohmann::json load_from_file(const std::string& fname)
 ///bit dangerous though if we touch containers
 template<typename T, typename U, typename... V>
 inline
-void rpc(const std::string& func_name, T& obj, U& func, V&... args)
+void rpc(const std::string& func_name, T& obj, U func, V&... args)
 {
     global_serialise_info& ser = get_global_serialise_info();
 
@@ -487,23 +497,25 @@ void rpc(const std::string& func_name, T& obj, U& func, V&... args)
     dat.func = func_name;
     dat.arg = narg;
 
-    ser.data.push_back(dat);
+    ser.all_rpcs.push_back(dat);
 }
 
-template<typename... T, int N, int M>
+#define RPC(x, ...) rpc(#x, *this, x, __VA_ARGS__)
+
+template<int N, int M, typename... T>
+inline
 void extract_args(std::tuple<T...>& in_tup, nlohmann::json& args)
 {
-    ///first argument is object, there is an off by one here
-    auto found = decltype(std::get<N+1>(in_tup))();
+    if constexpr(N < M)
+    {
+        auto found = std::get<N>(in_tup);
 
-    deserialise(args[N], found);
+        deserialise(args[N], found);
 
-    std::get<N+1> = found;
+        std::get<N>(in_tup) = found;
 
-    if constexpr(N == M)
-        return;
-
-    extract_args<T..., N+1, M>(in_tup, args);
+        extract_args<N+1, M, T...>(in_tup, args);
+    }
 }
 
 
@@ -513,13 +525,11 @@ void exec_rpc(R(C::*func)(Args...), C& obj, nlohmann::json& args)
 {
     constexpr int nargs = sizeof...(Args);
 
-    std::tuple<C, Args...> tup_args;
+    std::tuple<Args...> tup_args;
 
-    std::get<0>(tup_args) = obj;
+    extract_args<0, nargs, Args...>(tup_args, args);
 
-    extract_args<C, Args..., 0, nargs>(tup_args, args);
-
-    std::apply(func, tup_args);
+    std::apply(func, std::tuple_cat(std::forward_as_tuple(obj), tup_args));
 }
 
 #endif // SERIALISABLE_HPP_INCLUDED
