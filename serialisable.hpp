@@ -13,7 +13,6 @@ struct serialise_context;
 #define SERIALISE_SIGNATURE() virtual void serialise(serialise_context& ctx, nlohmann::json& data) override
 
 #define RPC_SIGNATURE() virtual void execute_function(const std::string& name, nlohmann::json& args) override
-#define HACKY_REGISTRATION() virtual void hacky_registration(std::map<size_t, serialisable*>& omap) override {omap[_pid] = this;}
 
 #define DO_SERIALISE(x){do_serialise(ctx, data, x, std::string(#x));}
 #define DO_RPC(x) do{if(name == std::string(#x)){exec_rpc(x, *this, args);}} while(0)
@@ -27,7 +26,6 @@ struct serialisable
 {
     virtual void serialise(serialise_context& ctx, nlohmann::json& data){}
     virtual void execute_function(const std::string& name, nlohmann::json& args){}
-    virtual void hacky_registration(std::map<size_t, serialisable*>& omap){}
     virtual void check_rpcs(global_serialise_info& inf){}
 
     static size_t time_ms();
