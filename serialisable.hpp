@@ -17,8 +17,8 @@ struct serialise_context;
 #define DO_SERIALISE(x){do_serialise(ctx, data, x, std::string(#x));}
 #define DO_RPC(x) do{if(name == std::string(#x)){exec_rpc(x, *this, args);}} while(0)
 
-#define CHECK_RPC_SIGNATURE() virtual void check_rpcs(global_serialise_info& inf) override
-#define CHECK_ALL_RPC() if(auto it = inf.built.find(_pid); it != inf.built.end()){for(rpc_data& dat : it->second){execute_function(dat.func, dat.arg);}}
+#define CHECK_RPC_SIGNATURE() virtual void check_rpcs(serialise_context& ctx) override
+#define CHECK_ALL_RPC() if(ctx.exec_rpcs){if(auto it = ctx.inf.built.find(_pid); it != ctx.inf.built.end()){for(rpc_data& dat : it->second){execute_function(dat.func, dat.arg);}}}
 
 struct global_serialise_info;
 
@@ -26,11 +26,29 @@ struct serialisable
 {
     virtual void serialise(serialise_context& ctx, nlohmann::json& data){}
     virtual void execute_function(const std::string& name, nlohmann::json& args){}
-    virtual void check_rpcs(global_serialise_info& inf){}
+    virtual void check_rpcs(serialise_context& ctx){}
 
     static size_t time_ms();
 
     virtual ~serialisable();
+};
+
+struct rpc_data : serialisable
+{
+    size_t id = -1;
+    std::string func;
+    nlohmann::json arg;
+
+    SERIALISE_SIGNATURE();
+};
+
+struct global_serialise_info : serialisable
+{
+    std::vector<rpc_data> all_rpcs;
+
+    std::map<size_t, std::vector<rpc_data>> built;
+
+    SERIALISE_SIGNATURE();
 };
 
 struct serialise_context
@@ -40,6 +58,9 @@ struct serialise_context
 
     bool encode = false;
     bool recurse = false;
+
+    global_serialise_info inf;
+    bool exec_rpcs = false;
 };
 
 inline
@@ -80,26 +101,6 @@ nlohmann::json args_to_nlohmann(T&... args)
 
     return ret;
 }
-
-struct rpc_data : serialisable
-{
-    size_t id = -1;
-    std::string func;
-    nlohmann::json arg;
-
-    SERIALISE_SIGNATURE();
-};
-
-struct global_serialise_info : serialisable
-{
-    std::vector<rpc_data> all_rpcs;
-
-    std::map<size_t, std::vector<rpc_data>> built;
-
-    SERIALISE_SIGNATURE();
-
-    void consume(std::map<size_t, serialisable*>& in);
-};
 
 inline
 global_serialise_info& get_global_serialise_info()

@@ -28,24 +28,6 @@ void global_serialise_info::serialise(serialise_context& ctx, nlohmann::json& da
     }
 }
 
-///need to integrate network ownership in here
-void global_serialise_info::consume(std::map<size_t, serialisable*>& in)
-{
-    for(rpc_data& dat : all_rpcs)
-    {
-        auto it = in.find(dat.id);
-
-        if(it == in.end())
-            continue;
-
-        serialisable* s = it->second;
-
-        s->execute_function(dat.func, dat.arg);
-    }
-
-    all_rpcs.clear();
-}
-
 size_t serialisable::time_ms()
 {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
