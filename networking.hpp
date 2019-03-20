@@ -183,6 +183,9 @@ struct delta_container : serialisable
 
     SERIALISE_SIGNATURE()
     {
+        if(!ctx.serialisation)
+            return;
+
         if(ctx.encode)
         {
             if(d.size() == 0)
@@ -256,7 +259,7 @@ struct persistent : serialisable
 
         T* ptr = sptr.get();
 
-        ptr->serialise(ctx, data);
+        DO_SERIALISE(ptr);
     }
 
     /*persistent(const persistent<T>& other)

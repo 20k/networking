@@ -12,7 +12,17 @@ struct serialise_context;
 
 #define SERIALISE_SIGNATURE() virtual void serialise(serialise_context& ctx, nlohmann::json& data) override
 
-#define DO_SERIALISE(x) do{if(ctx.serialisation){do_serialise(ctx, data, x, std::string(#x));} else {do_recurse(ctx, x);}}while(0)
+#define DO_SERIALISE(x) do{ \
+                            if(ctx.serialisation) \
+                            { \
+                                do_serialise(ctx, data, x, std::string(#x)); \
+                            } \
+                            if(ctx.exec_rpcs) \
+                            { \
+                                do_recurse(ctx, x); \
+                            } \
+                        }while(0)
+
 #define DO_RPC(x) do{ \
                         if(ctx.exec_rpcs) \
                         { \
@@ -410,6 +420,7 @@ struct test_serialisable : serialisable
 };
 
 template<typename T>
+inline
 nlohmann::json serialise(T& in)
 {
     serialise_context ctx;
@@ -432,6 +443,7 @@ nlohmann::json serialise(T& in)
 }
 
 template<typename T>
+inline
 T deserialise(nlohmann::json& in)
 {
     serialise_context ctx;
@@ -454,6 +466,7 @@ T deserialise(nlohmann::json& in)
 }
 
 template<typename T>
+inline
 void deserialise(nlohmann::json& in, T& dat)
 {
     serialise_context ctx;

@@ -22,6 +22,9 @@ struct net_interpolate : serialisable
 
     SERIALISE_SIGNATURE()
     {
+        if(!ctx.serialisation)
+            return;
+
         ///will probably need this for save/load
         if(auth && !encode)
         {
