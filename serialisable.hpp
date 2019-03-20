@@ -12,7 +12,7 @@ struct serialise_context;
 
 #define SERIALISE_SIGNATURE() virtual void serialise(serialise_context& ctx, nlohmann::json& data) override
 
-#define DO_SERIALISE(x) if(ctx.serialisation){do_serialise(ctx, data, x, std::string(#x));} else {do_recurse(ctx, x);}
+#define DO_SERIALISE(x) do{if(ctx.serialisation){do_serialise(ctx, data, x, std::string(#x));} else {do_recurse(ctx, x);}}while(0)
 #define DO_RPC(x) do{ \
                         if(ctx.exec_rpcs) \
                         { \
@@ -28,17 +28,6 @@ struct serialise_context;
                             } \
                         } \
                   }while(0)
-
-#define CHECK_ALL_RPC() if(ctx.exec_rpcs) \
-                        { \
-                            if(auto it = ctx.inf.built.find(_pid); it != ctx.inf.built.end()) \
-                            { \
-                                for(rpc_data& dat : it->second) \
-                                { \
-                                    execute_function(dat.func, dat.arg); \
-                                } \
-                            } \
-                        }
 
 struct serialisable
 {
