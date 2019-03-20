@@ -14,8 +14,23 @@ struct serialise_context;
 
 #define RPC_SIGNATURE() virtual void execute_function(const std::string& name, nlohmann::json& args) override
 
-#define DO_SERIALISE(x){do_serialise(ctx, data, x, std::string(#x));}
-#define DO_RPC(x) do{if(name == std::string(#x)){exec_rpc(x, *this, args);}} while(0)
+#define DO_SERIALISE(x) if(ctx.serialisation){do_serialise(ctx, data, x, std::string(#x));} else {do_recurse(ctx, x);}
+#define DO_RPC_OLD(x) do{if(name == std::string(#x)){exec_rpc(x, *this, args);}} while(0)
+#define DO_RPC(x) do{ \
+                        if(ctx.exec_rpcs) \
+                        { \
+                            if(auto it = ctx.inf.built.find(_pid); it != ctx.inf.built.end()) \
+                            { \
+                                for(rpc_data& dat : it->second) \
+                                { \
+                                    if(dat.func == std::string(#x)) \
+                                    { \
+                                        exec_rpc(x, *this, dat.arg); \
+                                    } \
+                                } \
+                            } \
+                        } \
+                  }while(0)
 
 #define CHECK_RPC_SIGNATURE() virtual void check_rpcs(serialise_context& ctx) override
 
@@ -66,6 +81,7 @@ struct serialise_context
 
     bool encode = false;
     bool recurse = false;
+    bool serialisation = false;
 
     global_serialise_info inf;
     bool exec_rpcs = false;
@@ -103,6 +119,7 @@ nlohmann::json args_to_nlohmann(T&... args)
     nlohmann::json ret;
     serialise_context ctx;
     ctx.encode = true;
+    ctx.serialisation = true;
 
     int idx = 0;
     args_to_nlohmann_1(ret, ctx, idx, args...);
@@ -352,9 +369,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& 
     }
 }
 
-template<typename T, typename U>
+template<typename T>
 inline
-void do_recurse(serialise_context& ctx, T& in, const std::string& name, const U& func)
+void do_recurse(serialise_context& ctx, T& in)
 {
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
@@ -365,34 +382,34 @@ void do_recurse(serialise_context& ctx, T& in, const std::string& name, const U&
 
     if constexpr(!std::is_base_of_v<serialisable, T>)
     {
-        func(in);
+
+    }
+}
+
+template<typename T>
+inline
+void do_recurse(serialise_context& ctx, T*& in)
+{
+    do_recurse(ctx, *in);
+}
+
+template<typename T>
+inline
+void do_recurse(serialise_context& ctx, std::vector<T>& in)
+{
+    for(auto& i : in)
+    {
+        do_recurse(ctx, i);
     }
 }
 
 template<typename T, typename U>
 inline
-void do_recurse(serialise_context& ctx, T*& in, const std::string& name, const U& func)
-{
-    do_recurse(ctx, *in, name, func);
-}
-
-template<typename T, typename U>
-inline
-void do_recurse(serialise_context& ctx, std::vector<T>& in, const std::string& name, const U& func)
+void do_recurse(serialise_context& ctx, std::map<T, U>& in)
 {
     for(auto& i : in)
     {
-        do_recurse(ctx, in, name, func);
-    }
-}
-
-template<typename T, typename U, typename V>
-inline
-void do_recurse(serialise_context& ctx, std::map<T, U>& in, const std::string& name, const V& func)
-{
-    for(auto& i : in)
-    {
-        do_recurse(ctx, i.second, name, func);
+        do_recurse(ctx, i.second);
     }
 }
 
@@ -415,6 +432,7 @@ nlohmann::json serialise(T& in)
 {
     serialise_context ctx;
     ctx.encode = true;
+    ctx.serialisation = true;
 
     nlohmann::json data;
 
@@ -436,6 +454,7 @@ T deserialise(nlohmann::json& in)
 {
     serialise_context ctx;
     ctx.encode = false;
+    ctx.serialisation = true;
 
     T ret;
 
@@ -457,6 +476,7 @@ void deserialise(nlohmann::json& in, T& dat)
 {
     serialise_context ctx;
     ctx.encode = false;
+    ctx.serialisation = true;
 
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
