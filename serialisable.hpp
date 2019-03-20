@@ -18,9 +18,17 @@ struct serialise_context;
 #define DO_RPC(x) do{if(name == std::string(#x)){exec_rpc(x, *this, args);}} while(0)
 
 #define CHECK_RPC_SIGNATURE() virtual void check_rpcs(serialise_context& ctx) override
-#define CHECK_ALL_RPC() if(ctx.exec_rpcs){if(auto it = ctx.inf.built.find(_pid); it != ctx.inf.built.end()){for(rpc_data& dat : it->second){execute_function(dat.func, dat.arg);}}}
 
-struct global_serialise_info;
+#define CHECK_ALL_RPC() if(ctx.exec_rpcs) \
+                        { \
+                            if(auto it = ctx.inf.built.find(_pid); it != ctx.inf.built.end()) \
+                            { \
+                                for(rpc_data& dat : it->second) \
+                                { \
+                                    execute_function(dat.func, dat.arg); \
+                                } \
+                            } \
+                        }
 
 struct serialisable
 {
