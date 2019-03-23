@@ -508,7 +508,7 @@ nlohmann::json load_from_file(const std::string& fname)
 ///bit dangerous though if we touch containers
 template<typename T, typename U, typename... V>
 inline
-void rpc(const std::string& func_name, T& obj, U func, V&... args)
+void rpc(const std::string& func_name, T& obj, U func, const V&... args)
 {
     global_serialise_info& ser = get_global_serialise_info();
 
