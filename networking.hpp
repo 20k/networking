@@ -80,7 +80,9 @@ struct connection
     }
 
     std::mutex mut;
-    std::vector<write_data> write_queue;
+    std::map<uint64_t, std::vector<write_data>> directed_write_queue;
+    std::map<uint64_t, std::mutex> directed_write_lock;
+
     std::vector<write_data> read_queue;
 
     std::atomic_int id = 0;

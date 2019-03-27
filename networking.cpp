@@ -61,22 +61,35 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
 
         bool should_continue = false;
 
+
+        std::vector<write_data>* write_queue_ptr = nullptr;
+        std::mutex* write_mutex_ptr = nullptr;
+
+        {
+            std::lock_guard guard(conn.mut);
+
+            write_queue_ptr = &conn.directed_write_queue[id];
+            write_mutex_ptr = &conn.directed_write_lock[id];
+        }
+
+        std::vector<write_data>& write_queue = *write_queue_ptr;
+        std::mutex& write_mutex = *write_mutex_ptr;
+
         while(1)
         {
             try
             {
                 if(!async_write)
                 {
-                    std::lock_guard guard(conn.mut);
+                    std::lock_guard guard(write_mutex);
 
-                    for(auto it = conn.write_queue.begin(); it != conn.write_queue.end();)
+                    for(auto it = write_queue.begin(); it != write_queue.end();)
                     {
                         write_data next = *it;
 
                         if(next.id != id)
                         {
-                            it++;
-                            continue;
+                            throw std::runtime_error("Should be impossible to have id != write id");
                         }
                         else
                         {
@@ -94,7 +107,7 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
                                            });
 
                             should_continue = true;
-                            conn.write_queue.erase(it);
+                            write_queue.erase(it);
                             break;
                         }
                     }
@@ -232,24 +245,37 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
         int num_continues = 0;
 
+        std::vector<write_data>* write_queue_ptr = nullptr;
+        std::mutex* write_mutex_ptr = nullptr;
+
+        {
+            std::lock_guard guard(conn.mut);
+
+            write_queue_ptr = &conn.directed_write_queue[-1];
+            write_mutex_ptr = &conn.directed_write_lock[-1];
+        }
+
+        std::vector<write_data>& write_queue = *write_queue_ptr;
+        std::mutex& write_mutex = *write_mutex_ptr;
+
         while(1)
         {
             try
             {
                 if(!async_write)
                 {
-                    std::lock_guard guard(conn.mut);
+                    std::lock_guard guard(write_mutex);
 
-                    while(conn.write_queue.size() > 0)
+                    while(write_queue.size() > 0)
                     {
-                        write_data next = conn.write_queue.front();
+                        write_data next = write_queue.front();
 
                         wbuffer.consume(wbuffer.size());
 
                         size_t n = buffer_copy(wbuffer.prepare(next.data.size()), boost::asio::buffer(next.data));
                         wbuffer.commit(n);
 
-                        conn.write_queue.erase(conn.write_queue.begin());
+                        write_queue.erase(write_queue.begin());
 
                         ws.async_write(wbuffer.data(), [&](boost::system::error_code, std::size_t)
                                        {
@@ -375,9 +401,19 @@ void connection::pop_read()
 
 void connection::write_to(const write_data& data)
 {
-    std::lock_guard guard(mut);
+    std::vector<write_data>* write_dat = nullptr;
+    std::mutex* write_mutex = nullptr;
 
-    write_queue.push_back(data);
+    {
+        std::lock_guard guard(mut);
+
+        write_dat = &directed_write_queue[data.id];
+        write_mutex = &directed_write_lock[data.id];
+    }
+
+    std::lock_guard guard(*write_mutex);
+
+    write_dat->push_back(data);
 }
 
 std::optional<uint64_t> connection::has_new_client()
