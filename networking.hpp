@@ -35,8 +35,8 @@ struct connection
 
     bool has_read();
     write_data read_from();
-    std::string read();
-    void pop_read();
+    //std::string read();
+    void pop_read(uint64_t id);
 
     static inline thread_local int thread_is_client = 0;
     static inline thread_local int thread_is_server = 0;
@@ -83,7 +83,10 @@ struct connection
     std::map<uint64_t, std::vector<write_data>> directed_write_queue;
     std::map<uint64_t, std::mutex> directed_write_lock;
 
-    std::vector<write_data> read_queue;
+    //std::vector<write_data> read_queue;
+
+    std::map<uint64_t, std::vector<write_data>> fine_read_queue;
+    std::map<uint64_t, std::mutex> fine_read_lock;
 
     std::atomic_int id = 0;
     std::vector<uint64_t> new_clients;

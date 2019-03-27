@@ -61,19 +61,27 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
 
         bool should_continue = false;
 
-
         std::vector<write_data>* write_queue_ptr = nullptr;
         std::mutex* write_mutex_ptr = nullptr;
+
+        std::vector<write_data>* read_queue_ptr = nullptr;
+        std::mutex* read_mutex_ptr = nullptr;
 
         {
             std::lock_guard guard(conn.mut);
 
             write_queue_ptr = &conn.directed_write_queue[id];
             write_mutex_ptr = &conn.directed_write_lock[id];
+
+            read_queue_ptr = &conn.fine_read_queue[id];
+            read_mutex_ptr = &conn.fine_read_lock[id];
         }
 
         std::vector<write_data>& write_queue = *write_queue_ptr;
         std::mutex& write_mutex = *write_mutex_ptr;
+
+        std::vector<write_data>& read_queue = *read_queue_ptr;
+        std::mutex& read_mutex = *read_mutex_ptr;
 
         while(1)
         {
@@ -115,13 +123,13 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
                                   {
                                       std::string next = boost::beast::buffers_to_string(rbuffer.data());
 
-                                      std::lock_guard guard(conn.mut);
+                                      std::lock_guard guard(read_mutex);
 
                                       write_data ndata;
-                                      ndata.data = next;
+                                      ndata.data = std::move(next);
                                       ndata.id = id;
 
-                                      conn.read_queue.push_back(ndata);
+                                      read_queue.push_back(ndata);
 
                                       rbuffer = decltype(rbuffer)();
 
@@ -244,15 +252,24 @@ void client_thread(connection& conn, std::string address, uint16_t port)
         std::vector<write_data>* write_queue_ptr = nullptr;
         std::mutex* write_mutex_ptr = nullptr;
 
+        std::vector<write_data>* read_queue_ptr = nullptr;
+        std::mutex* read_mutex_ptr = nullptr;
+
         {
             std::lock_guard guard(conn.mut);
 
             write_queue_ptr = &conn.directed_write_queue[-1];
             write_mutex_ptr = &conn.directed_write_lock[-1];
+
+            read_queue_ptr = &conn.fine_read_queue[-1];
+            read_mutex_ptr = &conn.fine_read_lock[-1];
         }
 
         std::vector<write_data>& write_queue = *write_queue_ptr;
         std::mutex& write_mutex = *write_mutex_ptr;
+
+        std::vector<write_data>& read_queue = *read_queue_ptr;
+        std::mutex& read_mutex = *read_mutex_ptr;
 
         while(1)
         {
@@ -291,13 +308,13 @@ void client_thread(connection& conn, std::string address, uint16_t port)
                                   {
                                       std::string next = boost::beast::buffers_to_string(rbuffer.data());
 
-                                      std::lock_guard guard(conn.mut);
+                                      std::lock_guard guard(read_mutex);
 
                                       write_data ndata;
-                                      ndata.data = next;
+                                      ndata.data = std::move(next);
                                       ndata.id = -1;
 
-                                      conn.read_queue.push_back(ndata);
+                                      read_queue.push_back(ndata);
 
                                       rbuffer = decltype(rbuffer)();
 
@@ -362,37 +379,65 @@ bool connection::has_read()
 {
     std::lock_guard guard(mut);
 
-    return read_queue.size() > 0;
-}
+    for(auto& i : fine_read_queue)
+    {
+        std::lock_guard g2(fine_read_lock[i.first]);
 
-std::string connection::read()
-{
-    std::lock_guard guard(mut);
+        if(i.second.size() > 0)
+            return true;
+    }
 
-    if(read_queue.size() == 0)
-        throw std::runtime_error("Bad queue");
-
-    return read_queue.front().data;
+    return false;
 }
 
 write_data connection::read_from()
 {
-    std::lock_guard guard(mut);
+    /*std::lock_guard guard(mut);
 
     if(read_queue.size() == 0)
         throw std::runtime_error("Bad queue");
 
-    return read_queue.front();
+    return read_queue.front();*/
+
+    ///there's a version of this function that could be written
+    ///where mut is not held all the time
+
+    std::lock_guard guard(mut);
+
+    for(auto& i : fine_read_queue)
+    {
+        std::lock_guard g2(fine_read_lock[i.first]);
+
+        if(i.second.size() > 0)
+            return i.second.front();
+    }
+
+    throw std::runtime_error("Bad queue");
 }
 
-void connection::pop_read()
+void connection::pop_read(uint64_t id)
 {
-    std::lock_guard guard(mut);
+    std::vector<write_data>* read_ptr = nullptr;
+    std::mutex* mut_ptr = nullptr;
 
-    if(read_queue.size() == 0)
+    {
+        std::lock_guard guard(mut);
+
+        read_ptr = &fine_read_queue[id];
+        mut_ptr = &fine_read_lock[id];
+    }
+
+    std::lock_guard guard(*mut_ptr);
+
+    if(read_ptr->size() == 0)
         throw std::runtime_error("Bad queue");
 
-    read_queue.erase(read_queue.begin());
+    read_ptr->erase(read_ptr->begin());
+
+    /*if(read_queue.size() == 0)
+        throw std::runtime_error("Bad queue");
+
+    read_queue.erase(read_queue.begin());*/
 }
 
 void connection::write_to(const write_data& data)
@@ -414,6 +459,8 @@ void connection::write_to(const write_data& data)
 
 std::optional<uint64_t> connection::has_new_client()
 {
+    std::lock_guard guard(mut);
+
     for(auto& i : new_clients)
     {
         return i;
@@ -424,6 +471,8 @@ std::optional<uint64_t> connection::has_new_client()
 
 void connection::pop_new_client()
 {
+    std::lock_guard guard(mut);
+
     if(new_clients.size() > 0)
     {
         new_clients.erase(new_clients.begin());
