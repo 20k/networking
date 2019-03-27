@@ -85,31 +85,27 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
 
                     for(auto it = write_queue.begin(); it != write_queue.end();)
                     {
-                        write_data next = *it;
+                        const write_data& next = *it;
 
                         if(next.id != id)
-                        {
                             throw std::runtime_error("Should be impossible to have id != write id");
-                        }
-                        else
-                        {
-                            async_write = true;
 
-                            wbuffer.consume(wbuffer.size());
+                        async_write = true;
 
-                            size_t n = buffer_copy(wbuffer.prepare(next.data.size()), boost::asio::buffer(next.data));
-                            wbuffer.commit(n);
+                        wbuffer.consume(wbuffer.size());
 
-                            ws.async_write(wbuffer.data(), [&](boost::system::error_code, std::size_t)
-                                           {
-                                                async_write = false;
-                                                should_continue = true;
-                                           });
+                        size_t n = buffer_copy(wbuffer.prepare(next.data.size()), boost::asio::buffer(next.data));
+                        wbuffer.commit(n);
 
-                            should_continue = true;
-                            write_queue.erase(it);
-                            break;
-                        }
+                        ws.async_write(wbuffer.data(), [&](boost::system::error_code, std::size_t)
+                                       {
+                                            async_write = false;
+                                            should_continue = true;
+                                       });
+
+                        should_continue = true;
+                        write_queue.erase(it);
+                        break;
                     }
                 }
 
@@ -268,7 +264,7 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
                     while(write_queue.size() > 0)
                     {
-                        write_data next = write_queue.front();
+                        const write_data& next = write_queue.front();
 
                         wbuffer.consume(wbuffer.size());
 
