@@ -247,8 +247,6 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
         bool should_continue = false;
 
-        int num_continues = 0;
-
         std::vector<write_data>* write_queue_ptr = nullptr;
         std::mutex* write_mutex_ptr = nullptr;
 
