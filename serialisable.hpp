@@ -169,16 +169,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, c
     }
     else
     {
-        if(data.count(name) == 0)
+        for(int i=0; i < N; i++)
         {
-            in = vec<N, T>();
-        }
-        else
-        {
-            for(int i=0; i < N; i++)
-            {
-                in.v[i] = data[name][i];
-            }
+            in.v[i] = data[name][i];
         }
     }
 }
@@ -205,18 +198,11 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
         }
         else
         {
-            if(data.find(name) == data.end())
-            {
-                in = T();
-            }
-            else
-            {
-                in = data[name];
+            in = data[name];
 
-                if constexpr(std::is_base_of_v<owned, T>)
-                {
-                    in._pid = data[name]["_pid"];
-                }
+            if constexpr(std::is_base_of_v<owned, T>)
+            {
+                in._pid = data[name]["_pid"];
             }
         }
     }
