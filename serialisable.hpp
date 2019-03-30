@@ -34,7 +34,7 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                             { \
                                 if(other) \
                                 { \
-                                    if(!serialisable_is_equal(&this->x, &other->x)) \
+                                    if(!std::is_base_of_v<owned, self_t> || (std::is_base_of_v<owned, self_t> && !serialisable_is_equal(&this->x, &other->x))) \
                                         do_serialise(ctx, data, x, std::string(#x), &other->x); \
                                 }  \
                                 else \
@@ -302,9 +302,42 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
         T* fptr = nullptr;
 
-        for(int i=0; i < (int)in.size(); i++)
+        if(other)
         {
-            do_serialise(ctx, data[name], in[i], std::to_string(i), fptr);
+            /*for(int i=0; i < (int)in.size() && i < (int)other->size(); i++)
+            {
+                if(serialisable_is_equal(&in[i], &(*other)[i]))
+                    continue;
+
+                do_serialise(ctx, data[name], in[i], std::to_string(i), &(*other)[i]);
+            }
+
+            for(int i=(int)other->size(); i < (int)in.size(); i++)
+            {
+                do_serialise(ctx, data[name], in[i], std::to_string(i), fptr);
+            }*/
+
+            if(in.size() == other->size())
+            {
+                for(int i=0; i < (int)in.size(); i++)
+                {
+                    do_serialise(ctx, data[name], in[i], std::to_string(i), &(*other)[i]);
+                }
+            }
+            else
+            {
+                for(int i=0; i < (int)in.size(); i++)
+                {
+                    do_serialise(ctx, data[name], in[i], std::to_string(i), fptr);
+                }
+            }
+        }
+        else
+        {
+            for(int i=0; i < (int)in.size(); i++)
+            {
+                do_serialise(ctx, data[name], in[i], std::to_string(i), fptr);
+            }
         }
     }
     else
@@ -407,8 +440,8 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& 
         {
             T cstr = i.first;
 
-            do_serialise(ctx, data[name][idx], cstr, "f", other);
-            do_serialise(ctx, data[name][idx], i.second, "s", other);
+            do_serialise(ctx, data[name][idx], cstr, "f", fptr);
+            do_serialise(ctx, data[name][idx], i.second, "s", fptr);
 
             idx++;
         }

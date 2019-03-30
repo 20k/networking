@@ -38,6 +38,34 @@ serialisable::~serialisable()
 
 }
 
+struct data_1 : serialisable, owned
+{
+    float my_float = 0;
+
+    SERIALISE_SIGNATURE()
+    {
+        DO_SERIALISE(my_float);
+    }
+};
+
+struct data_2 : serialisable, owned
+{
+    std::vector<data_1> test_owned;
+
+    data_2()
+    {
+        data_1 mdata;
+        mdata.my_float = 2;
+
+        test_owned.push_back(mdata);
+    }
+
+    SERIALISE_SIGNATURE()
+    {
+        DO_SERIALISE(test_owned);
+    }
+};
+
 void serialise_tests()
 {
     float f1 = 1;
@@ -77,4 +105,24 @@ void serialise_tests()
     v_2.push_back(test2);
 
     assert(!serialisable_is_equal(&v_1, &v_2));
+
+
+
+    data_2 dat_2;
+    data_2 dat_3;
+
+    data_1 add_data;
+    add_data.my_float = 53;
+
+    dat_3.test_owned.push_back(add_data);
+
+    nlohmann::json ser_data = serialise_against(dat_3, dat_2);
+
+    data_2 mdata = dat_2;
+
+    deserialise(ser_data, mdata);
+
+    assert(mdata.test_owned.size() == 2);
+    assert(mdata.test_owned[0].my_float == 2);
+    assert(mdata.test_owned[1].my_float == 53);
 }
