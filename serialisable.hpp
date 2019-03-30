@@ -223,8 +223,11 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
 {
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
-        if(data.count(name) == 0)
-            return;
+        if(!ctx.encode)
+        {
+            if(data.count(name) == 0)
+                return;
+        }
 
         in.serialise(ctx, data[name]);
 
