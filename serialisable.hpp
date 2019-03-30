@@ -204,8 +204,8 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, c
 {
     if(ctx.encode)
     {
-        if(serialisable_is_equal(&in, other))
-            return;
+        //if(serialisable_is_equal(&in, other))
+        //    return;
 
         for(int i=0; i < N; i++)
         {
@@ -238,8 +238,8 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
 
         if(ctx.encode)
         {
-            if(serialisable_is_equal(&in, other))
-                return;
+            //if(serialisable_is_equal(&in, other))
+            //    return;
         }
 
         in.serialise(ctx, data[name], other);
@@ -254,8 +254,8 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
     {
         if(ctx.encode)
         {
-            if(serialisable_is_equal(&in, other))
-                return;
+            //if(serialisable_is_equal(&in, other))
+            //    return;
 
             data[name] = in;
         }
@@ -278,7 +278,10 @@ template<typename T>
 inline
 void do_serialise(serialise_context& ctx, nlohmann::json& data, T*& in, const std::string& name, T** other)
 {
-    assert(in);
+    if(in == nullptr)
+    {
+        in = new T();
+    }
 
     T* fptr = nullptr;
 
@@ -294,8 +297,8 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 {
     if(ctx.encode)
     {
-        if(serialisable_is_equal(&in, other))
-            return;
+        //if(serialisable_is_equal(&in, other))
+        //    return;
 
         T* fptr = nullptr;
 
@@ -395,8 +398,8 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& 
 
     if(ctx.encode)
     {
-        if(serialisable_is_equal(&in, other))
-            return;
+        //if(serialisable_is_equal(&in, other))
+        //    return;
 
         int idx = 0;
 
@@ -669,7 +672,13 @@ bool serialisable_is_eq_impl(serialise_context& ctx, T& one, T& two)
 
     if constexpr(!std::is_base_of_v<serialisable, T>)
     {
-        return one == two;
+        if(one != two)
+        {
+            ctx.is_eq_so_far = false;
+            return false;
+        }
+
+        return true;
     }
 
     ///this hack is getting kind of bad
@@ -749,6 +758,15 @@ bool serialisable_is_equal(T* one, T* two)
     ctx.check_eq = true;
 
     return serialisable_is_eq_impl(ctx, *one, *two);
+}
+
+template<typename T>
+inline
+void serialisable_clone(T& one, T& into)
+{
+    nlohmann::json s1 = serialise(one);
+
+    deserialise(s1, into);
 }
 
 void serialise_tests();

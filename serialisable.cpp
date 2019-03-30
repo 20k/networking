@@ -61,4 +61,20 @@ void serialise_tests()
     test3.test_datamember = 0;
 
     assert(serialisable_is_equal(&test, &test3));
+
+
+    std::vector<test_serialisable> v_1;
+    std::vector<test_serialisable> v_2;
+
+    for(int i=0; i < 5; i++)
+    {
+        v_1.push_back(test);
+        v_2.push_back(test);
+    }
+
+    assert(serialisable_is_equal(&v_1, &v_2));
+
+    v_2.push_back(test2);
+
+    assert(!serialisable_is_equal(&v_1, &v_2));
 }
