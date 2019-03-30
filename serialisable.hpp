@@ -726,11 +726,11 @@ template<typename T>
 inline
 bool serialisable_is_eq_impl(serialise_context& ctx, T*& one, T*& two)
 {
-    if(one != two)
-        return false;
-
-    if(one == nullptr)
+    if(one == nullptr && two == nullptr)
         return true;
+
+    if(one == nullptr || two == nullptr)
+        return false;
 
     return serialisable_is_eq_impl(ctx, *one, *two);
 }
