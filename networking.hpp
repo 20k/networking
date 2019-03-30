@@ -232,6 +232,7 @@ struct delta_container : serialisable
 
 ///maybe just have a unique base which contains a _pid and integrate it right into
 ///serialisation so it does the detection and stuff
+#if 0
 template<typename T>
 struct persistent : serialisable
 {
@@ -303,5 +304,6 @@ struct host_persistent : virtual serialisable
         DO_SERIALISE(_pid);
     }
 };
+#endif // 0
 
 #endif // NETWORKING_HPP_INCLUDED

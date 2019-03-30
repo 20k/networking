@@ -39,7 +39,8 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                             { \
                                 if(!ctx.is_eq_so_far) \
                                     return; \
-                                if(!serialisable_is_eq_impl(ctx, *this, *other)) \
+                                assert(other != nullptr); \
+                                if(!serialisable_is_eq_impl(ctx, this->x, other->x)) \
                                 { \
                                     ctx.is_eq_so_far = false; \
                                     return; \
@@ -597,6 +598,58 @@ bool serialisable_is_eq_impl(serialise_context& ctx, T& one, T& two)
     }
 
     return ctx.is_eq_so_far;
+}
+
+template<typename T>
+inline
+bool serialisable_is_eq_impl(serialise_context& ctx, std::vector<T>& one, std::vector<T>& two)
+{
+    if(one.size() != two.size())
+    {
+        return false;
+    }
+
+    for(int i=0; i < (int)one.size(); i++)
+    {
+        if(!serialisable_is_eq_impl(ctx, one[i], two[i]))
+            return false;
+    }
+
+    return true;
+}
+
+template<typename T, typename U>
+inline
+bool serialisable_is_eq_impl(serialise_context& ctx, std::map<T, U>& one, std::map<T, U>& two)
+{
+    if(one.size() != two.size())
+    {
+        return false;
+    }
+
+    for(auto& i : one)
+    {
+        if(two.find(i) == two.end())
+            return false;
+
+        if(!serialisable_is_eq_impl(i.second, two[i]))
+            return false;
+    }
+
+    return true;
+}
+
+template<typename T>
+inline
+bool serialisable_is_eq_impl(serialise_context& ctx, T*& one, T*& two)
+{
+    if(one != two)
+        return false;
+
+    if(one == nullptr)
+        return true;
+
+    return serialisable_is_eq_impl(ctx, *one, *two);
 }
 
 template<typename T>
