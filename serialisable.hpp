@@ -207,6 +207,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, c
     }
     else
     {
+        if(data.count(name) == 0)
+            return;
+
         for(int i=0; i < N; i++)
         {
             in.v[i] = data[name][i];
@@ -220,6 +223,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
 {
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
+        if(data.count(name) == 0)
+            return;
+
         in.serialise(ctx, data[name]);
 
         if constexpr(std::is_base_of_v<owned, T>)
@@ -236,6 +242,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
         }
         else
         {
+            if(data.count(name) == 0)
+                return;
+
             in = data[name];
 
             if constexpr(std::is_base_of_v<owned, T>)
@@ -268,6 +277,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
     }
     else
     {
+        if(data.count(name) == 0)
+            return;
+
         if constexpr(!std::is_base_of_v<owned, T>)
         {
             in = std::vector<T>();
@@ -364,6 +376,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& 
     }
     else
     {
+        if(data.count(name) == 0)
+            return;
+
         int idx = 0;
 
         in.clear();
