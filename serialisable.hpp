@@ -20,6 +20,9 @@ struct class_extractor<R(C::*)(Args...)>
     using class_t = C;
 };
 
+template<typename T>
+bool serialisable_is_equal(T* one, T* two);
+
 struct serialise_context;
 
 #define SERIALISE_SIGNATURE() void _internal_helper(){}\
@@ -31,12 +34,13 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                             { \
                                 if(other) \
                                 { \
-                                    if(!serialisable_is_equal(this->x, other->x)) \
-                                        do_serialise(ctx, data, x, std::string(#x)); \
+                                    if(!serialisable_is_equal(&this->x, &other->x)) \
+                                        do_serialise(ctx, data, x, std::string(#x), &other->x); \
                                 }  \
                                 else \
                                 { \
-                                    do_serialise(ctx, data, x, std::string(#x)); \
+                                    decltype(x)* fptr = nullptr;\
+                                    do_serialise(ctx, data, x, std::string(#x), fptr); \
                                 } \
                             } \
                             if(ctx.exec_rpcs) \
@@ -196,10 +200,13 @@ std::shared_ptr<T>& get_tls_ptr(size_t id)
 
 template<int N, typename T>
 inline
-void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, const std::string& name)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, const std::string& name, vec<N, T>* other)
 {
     if(ctx.encode)
     {
+        if(serialisable_is_equal(&in, other))
+            return;
+
         for(int i=0; i < N; i++)
         {
             data[name][i] = in.v[i];
@@ -219,7 +226,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, c
 
 template<typename T>
 inline
-void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std::string& name)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std::string& name, T* other)
 {
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
@@ -229,7 +236,13 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
                 return;
         }
 
-        in.serialise(ctx, data[name]);
+        if(ctx.encode)
+        {
+            if(serialisable_is_equal(&in, other))
+                return;
+        }
+
+        in.serialise(ctx, data[name], other);
 
         if constexpr(std::is_base_of_v<owned, T>)
         {
@@ -241,6 +254,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
     {
         if(ctx.encode)
         {
+            if(serialisable_is_equal(&in, other))
+                return;
+
             data[name] = in;
         }
         else
@@ -260,28 +276,40 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
 
 template<typename T>
 inline
-void do_serialise(serialise_context& ctx, nlohmann::json& data, T*& in, const std::string& name)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, T*& in, const std::string& name, T** other)
 {
     assert(in);
 
-    do_serialise(ctx, data, *in, name);
+    T* fptr = nullptr;
+
+    if(other)
+        do_serialise(ctx, data, *in, name, *other);
+    else
+        do_serialise(ctx, data, *in, name, fptr);
 }
 
 template<typename T>
 inline
-void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& in, const std::string& name)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& in, const std::string& name, std::vector<T>* other)
 {
     if(ctx.encode)
     {
+        if(serialisable_is_equal(&in, other))
+            return;
+
+        T* fptr = nullptr;
+
         for(int i=0; i < (int)in.size(); i++)
         {
-            do_serialise(ctx, data[name], in[i], std::to_string(i));
+            do_serialise(ctx, data[name], in[i], std::to_string(i), fptr);
         }
     }
     else
     {
         if(data.count(name) == 0)
             return;
+
+        T* fptr = nullptr;
 
         if constexpr(!std::is_base_of_v<owned, T>)
         {
@@ -297,7 +325,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
             for(int i=0; i < (int)dat.size(); i++)
             {
                 T next = T();
-                do_serialise(ctx, data[name], next, std::to_string(i));
+                do_serialise(ctx, data[name], next, std::to_string(i), fptr);
 
                 in.push_back(next);
             }
@@ -338,7 +366,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
                 if(has[_pid])
                 {
-                    do_serialise(ctx, data[name], *old_element_map[_pid], std::to_string(i));
+                    do_serialise(ctx, data[name], *old_element_map[_pid], std::to_string(i), fptr);
 
                     new_element_vector.push_back(*old_element_map[_pid]);
                 }
@@ -347,7 +375,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
                     T nelem = T();
                     nelem._pid = _pid;
 
-                    do_serialise(ctx, data[name], nelem, std::to_string(i));
+                    do_serialise(ctx, data[name], nelem, std::to_string(i), fptr);
 
                     new_element_vector.push_back(nelem);
                 }
@@ -361,18 +389,23 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 ///does not support ownership yet
 template<typename T, typename U>
 inline
-void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& in, const std::string& name)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& in, const std::string& name, std::map<T, U>* other)
 {
+    T* fptr = nullptr;
+
     if(ctx.encode)
     {
+        if(serialisable_is_equal(&in, other))
+            return;
+
         int idx = 0;
 
         for(auto& i : in)
         {
             T cstr = i.first;
 
-            do_serialise(ctx, data[name][idx], cstr, "f");
-            do_serialise(ctx, data[name][idx], i.second, "s");
+            do_serialise(ctx, data[name][idx], cstr, "f", other);
+            do_serialise(ctx, data[name][idx], i.second, "s", other);
 
             idx++;
         }
@@ -391,8 +424,8 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& 
             T first = T();
             U second = U();
 
-            do_serialise(ctx, data[name][idx], first, "f");
-            do_serialise(ctx, data[name][idx], second, "s");
+            do_serialise(ctx, data[name][idx], first, "f", fptr);
+            do_serialise(ctx, data[name][idx], second, "s", fptr);
 
             in[first] = second;
 
@@ -704,12 +737,18 @@ bool serialisable_is_eq_impl(serialise_context& ctx, T*& one, T*& two)
 
 template<typename T>
 inline
-bool serialisable_is_equal(T& one, T& two)
+bool serialisable_is_equal(T* one, T* two)
 {
+    if(one == nullptr && two == nullptr)
+        return true;
+
+    if(one == nullptr || two == nullptr)
+        return false;
+
     serialise_context ctx;
     ctx.check_eq = true;
 
-    return serialisable_is_eq_impl(ctx, one, two);
+    return serialisable_is_eq_impl(ctx, *one, *two);
 }
 
 void serialise_tests();
