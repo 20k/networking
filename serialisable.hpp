@@ -29,7 +29,15 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
 #define DO_SERIALISE(x) do{ \
                             if(ctx.serialisation) \
                             { \
-                                do_serialise(ctx, data, x, std::string(#x)); \
+                                if(other) \
+                                { \
+                                    if(!serialisable_is_equal(this->x, other->x)) \
+                                        do_serialise(ctx, data, x, std::string(#x)); \
+                                }  \
+                                else \
+                                { \
+                                    do_serialise(ctx, data, x, std::string(#x)); \
+                                } \
                             } \
                             if(ctx.exec_rpcs) \
                             { \
