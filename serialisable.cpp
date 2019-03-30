@@ -1,19 +1,19 @@
 #include "serialisable.hpp"
 #include <chrono>
 
-void rpc_data::serialise(serialise_context& ctx, nlohmann::json& data)
+void rpc_data::serialise(serialise_context& ctx, nlohmann::json& data, self_t* other)
 {
     DO_SERIALISE(id);
     DO_SERIALISE(func);
     DO_SERIALISE(arg);
 }
 
-void test_serialisable::serialise(serialise_context& ctx, nlohmann::json& data)
+void test_serialisable::serialise(serialise_context& ctx, nlohmann::json& data, self_t* other)
 {
     DO_SERIALISE(test_datamember);
 }
 
-void global_serialise_info::serialise(serialise_context& ctx, nlohmann::json& data)
+void global_serialise_info::serialise(serialise_context& ctx, nlohmann::json& data, self_t* other)
 {
     DO_SERIALISE(all_rpcs);
 

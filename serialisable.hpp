@@ -7,10 +7,24 @@
 #include <memory>
 #include <fstream>
 #include <map>
+#include <type_traits>
+
+///its going to be this kind of file
+///if this makes you sad its not getting any better from here
+template<typename T>
+struct class_extractor;
+
+template<typename C, typename R, typename... Args>
+struct class_extractor<R(C::*)(Args...)>
+{
+    using class_t = C;
+};
 
 struct serialise_context;
 
-#define SERIALISE_SIGNATURE() virtual void serialise(serialise_context& ctx, nlohmann::json& data) override
+#define SERIALISE_SIGNATURE() void _internal_helper(){}\
+using self_t = typename class_extractor<decltype(&_internal_helper)>::class_t;\
+void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nullptr)
 
 #define DO_SERIALISE(x) do{ \
                             if(ctx.serialisation) \
@@ -41,7 +55,7 @@ struct serialise_context;
 
 struct serialisable
 {
-    virtual void serialise(serialise_context& ctx, nlohmann::json& data){}
+    //virtual void serialise(serialise_context& ctx, nlohmann::json& data){}
 
     static size_t time_ms();
 
@@ -77,6 +91,8 @@ struct serialise_context
 
     global_serialise_info inf;
     bool exec_rpcs = false;
+
+    bool check_eq = false;
 };
 
 inline
@@ -390,6 +406,13 @@ void do_recurse(serialise_context& ctx, std::map<T, U>& in)
         do_recurse(ctx, i.second);
     }
 }
+
+/*template<typename T>
+inline
+bool do_is_eq(serialise_context& ctx, T& in_1, T& in_2)
+{
+
+}*/
 
 ///so
 ///implement a recurse function that simply executes a function against all datamembers
