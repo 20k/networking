@@ -491,6 +491,30 @@ nlohmann::json serialise(T& in)
     return data;
 }
 
+///produces the serialisation of in, assuming that the client has against
+template<typename T>
+inline
+nlohmann::json serialise_against(T& in, T& against)
+{
+    serialise_context ctx;
+    ctx.encode = true;
+    ctx.serialisation = true;
+
+    nlohmann::json data;
+
+    if constexpr(std::is_base_of_v<serialisable, T>)
+    {
+        in.serialise(ctx, data, &against);
+    }
+
+    if constexpr(!std::is_base_of_v<serialisable, T>)
+    {
+        data = in;
+    }
+
+    return data;
+}
+
 template<typename T>
 inline
 T deserialise(nlohmann::json& in)
