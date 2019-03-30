@@ -37,3 +37,28 @@ serialisable::~serialisable()
 {
 
 }
+
+void serialise_tests()
+{
+    float f1 = 1;
+    float f2 = 1;
+
+    assert(serialisable_is_equal(f1, f2));
+
+    float f3 = 2;
+
+    assert(!serialisable_is_equal(f1, f3));
+
+    test_serialisable test;
+    test.test_datamember = 0;
+
+    test_serialisable test2;
+    test2.test_datamember = 1;
+
+    assert(!serialisable_is_equal(test, test2));
+
+    test_serialisable test3;
+    test3.test_datamember = 0;
+
+    assert(serialisable_is_equal(test, test3));
+}

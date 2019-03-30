@@ -35,6 +35,16 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                             { \
                                 do_recurse(ctx, x); \
                             } \
+                            if(ctx.check_eq) \
+                            { \
+                                if(!ctx.is_eq_so_far) \
+                                    return; \
+                                if(!serialisable_is_eq_impl(ctx, *this, *other)) \
+                                { \
+                                    ctx.is_eq_so_far = false; \
+                                    return; \
+                                } \
+                            } \
                         }while(0)
 
 #define DO_RPC(x) do{ \
@@ -92,7 +102,10 @@ struct serialise_context
     global_serialise_info inf;
     bool exec_rpcs = false;
 
+
     bool check_eq = false;
+    ///used for comparing serialisable objects
+    bool is_eq_so_far = true;
 };
 
 inline
@@ -562,5 +575,40 @@ void exec_rpc(R(C::*func)(Args...), C& obj, nlohmann::json& args)
 
     std::apply(func, std::tuple_cat(std::forward_as_tuple(obj), tup_args));
 }
+
+template<typename T>
+inline
+bool serialisable_is_eq_impl(serialise_context& ctx, T& one, T& two)
+{
+    if(!ctx.is_eq_so_far)
+        return false;
+
+    if constexpr(!std::is_base_of_v<serialisable, T>)
+    {
+        return one == two;
+    }
+
+    ///this hack is getting kind of bad
+    nlohmann::json dummy;
+
+    if constexpr(std::is_base_of_v<serialisable, T>)
+    {
+        one.serialise(ctx, dummy, &two);
+    }
+
+    return ctx.is_eq_so_far;
+}
+
+template<typename T>
+inline
+bool serialisable_is_equal(T& one, T& two)
+{
+    serialise_context ctx;
+    ctx.check_eq = true;
+
+    return serialisable_is_eq_impl(ctx, one, two);
+}
+
+void serialise_tests();
 
 #endif // SERIALISABLE_HPP_INCLUDED
