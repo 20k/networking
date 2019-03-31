@@ -17,7 +17,7 @@ void global_serialise_info::serialise(serialise_context& ctx, nlohmann::json& da
 {
     DO_SERIALISE(all_rpcs);
 
-    if(ctx.encode == false)
+    if(ctx.serialisation && ctx.encode == false)
     {
         built.clear();
 
