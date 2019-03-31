@@ -320,19 +320,21 @@ template<typename T>
 inline
 void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& in, const std::string& name, std::vector<T>* other)
 {
+    constexpr bool of_owned = std::is_base_of_v<owned, std::remove_pointer<T>>;
+
     if(ctx.encode)
     {
         //if(serialisable_is_equal(&in, other))
         //    return;
 
-        if constexpr(!std::is_base_of_v<owned, std::remove_pointer<T>>)
+        if constexpr(!of_owned)
             data[name]["_c"] = in.size();
 
         T* fptr = nullptr;
 
         if(other)
         {
-            /*for(int i=0; i < (int)in.size() && i < (int)other->size(); i++)
+            for(int i=0; i < (int)in.size() && i < (int)other->size(); i++)
             {
                 if(serialisable_is_equal(&in[i], &(*other)[i]))
                     continue;
@@ -343,8 +345,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
             for(int i=(int)other->size(); i < (int)in.size(); i++)
             {
                 do_serialise(ctx, data[name], in[i], std::to_string(i), fptr);
-            }*/
+            }
 
+            #if 0
             if(in.size() == other->size())
             {
                 //bool can_skip = ctx.is_owned() && serialisable_is_equal(&in, other);
@@ -364,7 +367,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
             }
             else
             {
-                bool type_owned = std::is_base_of_v<owned, T>;
+                bool type_owned = std::is_base_of_v<owned, T> || ctx.is_owned();
 
                 ctx.push_owned(type_owned);
 
@@ -375,6 +378,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
                 ctx.pop_owned();
             }
+            #endif // 0
         }
         else
         {
