@@ -1,5 +1,13 @@
 #include "serialisable.hpp"
 #include <chrono>
+#include <fstream>
+
+struct test_serialisable : serialisable
+{
+    SERIALISE_SIGNATURE();
+
+    int test_datamember = 0;
+};
 
 void rpc_data::serialise(serialise_context& ctx, nlohmann::json& data, self_t* other)
 {
@@ -125,4 +133,34 @@ void serialise_tests()
     assert(mdata.test_owned.size() == 2);
     assert(mdata.test_owned[0].my_float == 2);
     assert(mdata.test_owned[1].my_float == 53);
+}
+
+global_serialise_info& get_global_serialise_info()
+{
+    thread_local static global_serialise_info inf;
+
+    return inf;
+}
+
+size_t get_next_persistent_id()
+{
+    thread_local static size_t gpid = 0;
+
+    return gpid++;
+}
+
+void save_to_file(const std::string& fname, const nlohmann::json& data)
+{
+    std::vector<unsigned char> input = nlohmann::json::to_cbor(data);
+    std::ofstream out(fname, std::ios::binary);
+    out << std::string(input.begin(), input.end());
+}
+
+nlohmann::json load_from_file(const std::string& fname)
+{
+    std::ifstream t(fname, std::ios::binary);
+    std::string str((std::istreambuf_iterator<char>(t)),
+                     std::istreambuf_iterator<char>());
+
+    return nlohmann::json::from_cbor(str);
 }

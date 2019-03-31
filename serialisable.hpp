@@ -4,10 +4,7 @@
 #include <nlohmann/json.hpp>
 #include <type_traits>
 #include <vec/vec.hpp>
-#include <memory>
-#include <fstream>
 #include <map>
-#include <type_traits>
 
 ///its going to be this kind of file
 ///if this makes you sad its not getting any better from here
@@ -131,12 +128,14 @@ template<typename T, typename... U>
 inline
 void args_to_nlohmann_1(nlohmann::json& in, serialise_context& ctx, int& idx, T& one, U&... two)
 {
-    if constexpr(std::is_base_of_v<serialisable, T>)
+    constexpr bool is_base = std::is_base_of_v<serialisable, T>;
+
+    if constexpr(is_base)
     {
         one.serialise(ctx, in[idx]);
     }
 
-    if constexpr(!std::is_base_of_v<serialisable, T>)
+    if constexpr(!is_base)
     {
         in[idx] = one;
     }
@@ -161,21 +160,8 @@ nlohmann::json args_to_nlohmann(T&... args)
     return ret;
 }
 
-inline
-global_serialise_info& get_global_serialise_info()
-{
-    thread_local static global_serialise_info inf;
-
-    return inf;
-}
-
-inline
-size_t get_next_persistent_id()
-{
-    thread_local static size_t gpid = 0;
-
-    return gpid++;
-}
+global_serialise_info& get_global_serialise_info();
+size_t get_next_persistent_id();
 
 struct owned
 {
@@ -228,7 +214,10 @@ template<typename T>
 inline
 void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std::string& name, T* other)
 {
-    if constexpr(std::is_base_of_v<serialisable, T>)
+    constexpr bool is_serialisable = std::is_base_of_v<serialisable, T>;
+    constexpr bool is_owned = std::is_base_of_v<owned, T>;
+
+    if constexpr(is_serialisable)
     {
         if(!ctx.encode)
         {
@@ -244,13 +233,13 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
 
         in.serialise(ctx, data[name], other);
 
-        if constexpr(std::is_base_of_v<owned, T>)
+        if constexpr(is_owned)
         {
             data[name]["_pid"] = in._pid;
         }
     }
 
-    if constexpr(!std::is_base_of_v<serialisable, T>)
+    if constexpr(!is_serialisable)
     {
         if(ctx.encode)
         {
@@ -266,7 +255,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
 
             in = data[name];
 
-            if constexpr(std::is_base_of_v<owned, T>)
+            if constexpr(is_owned)
             {
                 in._pid = data[name]["_pid"];
             }
@@ -295,14 +284,14 @@ template<typename T>
 inline
 void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& in, const std::string& name, std::vector<T>* other)
 {
-    constexpr bool of_owned = std::is_base_of_v<owned, std::remove_pointer_t<T>>;
+    constexpr bool is_owned = std::is_base_of_v<owned, std::remove_pointer_t<T>>;
 
     if(ctx.encode)
     {
         //if(serialisable_is_equal(&in, other))
         //    return;
 
-        if constexpr(!of_owned)
+        if constexpr(!is_owned)
             data[name]["_c"] = in.size();
 
         nlohmann::json& mname = data[name];
@@ -358,7 +347,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
         T* fptr = nullptr;
 
-        if constexpr(!std::is_base_of_v<owned, std::remove_pointer_t<T>>)
+        if constexpr(!is_owned)
         {
             //in = std::vector<T>();
 
@@ -392,7 +381,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
             }
         }
 
-        if constexpr(std::is_base_of_v<owned, std::remove_pointer_t<T>>)
+        if constexpr(is_owned)
         {
             using mtype = std::remove_pointer_t<T>;
 
@@ -549,26 +538,12 @@ void do_recurse(serialise_context& ctx, std::map<T, U>& in)
     }
 }
 
-/*template<typename T>
-inline
-bool do_is_eq(serialise_context& ctx, T& in_1, T& in_2)
-{
-
-}*/
-
 ///so
 ///implement a recurse function that simply executes a function against all datamembers
 ///then, iteratate through structs touching all datamembers, except that if we hit a FUNC_RPC and we're side_1
 ///write args to serialise context
 ///if we're side_2, execute function with those args
 ///will probably have to make weird rpc syntax or something, or an rpc function
-
-struct test_serialisable : serialisable
-{
-    SERIALISE_SIGNATURE();
-
-    int test_datamember = 0;
-};
 
 template<typename T>
 inline
@@ -659,23 +634,8 @@ void deserialise(nlohmann::json& in, T& dat)
     }
 }
 
-inline
-void save_to_file(const std::string& fname, const nlohmann::json& data)
-{
-    std::vector<unsigned char> input = nlohmann::json::to_cbor(data);
-    std::ofstream out(fname, std::ios::binary);
-    out << std::string(input.begin(), input.end());
-}
-
-inline
-nlohmann::json load_from_file(const std::string& fname)
-{
-    std::ifstream t(fname, std::ios::binary);
-    std::string str((std::istreambuf_iterator<char>(t)),
-                     std::istreambuf_iterator<char>());
-
-    return nlohmann::json::from_cbor(str);
-}
+void save_to_file(const std::string& fname, const nlohmann::json& data);
+nlohmann::json load_from_file(const std::string& fname);
 
 ///ok
 ///we gotta do pointers basically
@@ -790,7 +750,7 @@ bool serialisable_is_eq_impl(serialise_context& ctx, std::map<T, U>& one, std::m
         if(two.find(i) == two.end())
             return false;
 
-        if(!serialisable_is_eq_impl(i.second, two[i]))
+        if(!serialisable_is_eq_impl(ctx, i.second, two[i]))
             return false;
     }
 
