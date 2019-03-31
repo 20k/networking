@@ -34,8 +34,11 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                             { \
                                 if(other) \
                                 { \
-                                    if(!std::is_base_of_v<owned, self_t> || (std::is_base_of_v<owned, self_t> && !serialisable_is_equal(&this->x, &other->x))) \
+                                    bool am_owned = std::is_base_of_v<owned, self_t>; \
+                                    ctx.push_owned(am_owned); \
+                                    if(!am_owned || (am_owned && !serialisable_is_equal(&this->x, &other->x))) \
                                         do_serialise(ctx, data, x, std::string(#x), &other->x); \
+                                    ctx.pop_owned(); \
                                 }  \
                                 else \
                                 { \
@@ -119,6 +122,28 @@ struct serialise_context
     bool check_eq = false;
     ///used for comparing serialisable objects
     bool is_eq_so_far = true;
+
+    std::vector<int> ownership_stack;
+
+    bool is_owned()
+    {
+        if(ownership_stack.size() == 0)
+            return false;
+
+        return ownership_stack.back();
+    }
+
+    void push_owned(bool own)
+    {
+        ownership_stack.push_back(own);
+    }
+
+    void pop_owned()
+    {
+        assert(ownership_stack.size() > 0);
+
+        ownership_stack.pop_back();
+    }
 };
 
 inline
@@ -131,12 +156,12 @@ template<typename T, typename... U>
 inline
 void args_to_nlohmann_1(nlohmann::json& in, serialise_context& ctx, int& idx, T& one, U&... two)
 {
-    if constexpr(std::is_base_of_v<T, serialisable>)
+    if constexpr(std::is_base_of_v<serialisable, T>)
     {
         one.serialise(ctx, in[idx]);
     }
 
-    if constexpr(!std::is_base_of_v<T, serialisable>)
+    if constexpr(!std::is_base_of_v<serialisable, T>)
     {
         in[idx] = one;
     }
@@ -204,8 +229,8 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, c
 {
     if(ctx.encode)
     {
-        //if(serialisable_is_equal(&in, other))
-        //    return;
+        if(ctx.is_owned() && serialisable_is_equal(&in, other))
+            return;
 
         for(int i=0; i < N; i++)
         {
@@ -238,7 +263,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
 
         if(ctx.encode)
         {
-            //if(serialisable_is_equal(&in, other))
+            //if(std::is_base_of_v<owned, T> && serialisable_is_equal(&in, other))
             //    return;
         }
 
@@ -254,8 +279,8 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
     {
         if(ctx.encode)
         {
-            //if(serialisable_is_equal(&in, other))
-            //    return;
+            if(ctx.is_owned() && serialisable_is_equal(&in, other))
+                return;
 
             data[name] = in;
         }
@@ -300,6 +325,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
         //if(serialisable_is_equal(&in, other))
         //    return;
 
+        if constexpr(!std::is_base_of_v<owned, std::remove_pointer<T>>)
+            data[name]["_c"] = in.size();
+
         T* fptr = nullptr;
 
         if(other)
@@ -319,17 +347,33 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
             if(in.size() == other->size())
             {
+                //bool can_skip = ctx.is_owned() && serialisable_is_equal(&in, other);
+
+                /*bool type_owned = std::is_base_of_v<owned, T>;
+
+                ctx.push_owned(type_owned);*/
+
+
+
                 for(int i=0; i < (int)in.size(); i++)
                 {
                     do_serialise(ctx, data[name], in[i], std::to_string(i), &(*other)[i]);
                 }
+
+                //ctx.pop_owned();
             }
             else
             {
+                bool type_owned = std::is_base_of_v<owned, T>;
+
+                ctx.push_owned(type_owned);
+
                 for(int i=0; i < (int)in.size(); i++)
                 {
                     do_serialise(ctx, data[name], in[i], std::to_string(i), fptr);
                 }
+
+                ctx.pop_owned();
             }
         }
         else
@@ -347,27 +391,41 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
         T* fptr = nullptr;
 
-        if constexpr(!std::is_base_of_v<owned, T>)
+        if constexpr(!std::is_base_of_v<owned, std::remove_pointer<T>>)
         {
-            in = std::vector<T>();
+            //in = std::vector<T>();
 
-            std::map<int, nlohmann::json> dat;
+            int num = data[name]["_c"];
+
+            //printf("Num %i\n", num);
+
+            /*std::map<int, nlohmann::json> dat;
 
             for(auto& info : data[name].items())
             {
                 dat[std::stoi(info.key())] = info.value();
-            }
+            }*/
 
-            for(int i=0; i < (int)dat.size(); i++)
+            if(num < 0 || num >= 100000)
+                throw std::runtime_error("Num out of range");
+
+            in.resize(num);
+
+            /*for(int i=0; i < (int)dat.size(); i++)
             {
                 T next = T();
                 do_serialise(ctx, data[name], next, std::to_string(i), fptr);
 
                 in.push_back(next);
+            }*/
+
+            for(int i=0; i < num; i++)
+            {
+                do_serialise(ctx, data[name], in[i], std::to_string(i), fptr);
             }
         }
 
-        if constexpr(std::is_base_of_v<owned, T>)
+        if constexpr(std::is_base_of_v<owned, std::remove_pointer<T>>)
         {
             //std::map<size_t, bool> received;
             std::map<size_t, bool> has;
@@ -381,6 +439,13 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
                 has[i._pid] = true;
                 old_element_map[i._pid] = &i;
             }
+
+            if(data[name].count("_c") > 0)
+            {
+                std::cout << "NAME " << name << " END " << std::endl;
+            }
+
+            assert(data[name].count("_c") == 0);
 
             for(auto& info : data[name].items())
             {
