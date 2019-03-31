@@ -696,7 +696,9 @@ bool serialisable_is_eq_impl(serialise_context& ctx, T& one, T& two)
     if(!ctx.is_eq_so_far)
         return false;
 
-    if constexpr(!std::is_base_of_v<serialisable, T>)
+    constexpr bool is_serialisable = std::is_base_of_v<serialisable, T>;
+
+    if constexpr(!is_serialisable)
     {
         if(one != two)
         {
@@ -710,7 +712,7 @@ bool serialisable_is_eq_impl(serialise_context& ctx, T& one, T& two)
     ///this hack is getting kind of bad
     nlohmann::json dummy;
 
-    if constexpr(std::is_base_of_v<serialisable, T>)
+    if constexpr(is_serialisable)
     {
         one.serialise(ctx, dummy, &two);
     }
