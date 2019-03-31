@@ -34,11 +34,8 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                             { \
                                 if(other) \
                                 { \
-                                    bool am_owned = std::is_base_of_v<owned, self_t>; \
-                                    ctx.push_owned(am_owned); \
-                                    if(!am_owned || (am_owned && !serialisable_is_equal(&this->x, &other->x))) \
+                                    if(!serialisable_is_equal(&this->x, &other->x)) \
                                         do_serialise(ctx, data, x, std::string(#x), &other->x); \
-                                    ctx.pop_owned(); \
                                 }  \
                                 else \
                                 { \
@@ -68,12 +65,10 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                         { \
                             if(auto it = ctx.inf.built.find(_pid); it != ctx.inf.built.end()) \
                             { \
-                                std::cout << "my id " << _pid << std::endl; \
                                 for(rpc_data& dat : it->second) \
                                 { \
                                     if(dat.func == std::string(#x)) \
                                     { \
-                                        std::cout << "name " << #x << std::endl; \
                                         exec_rpc(x, *this, dat.arg); \
                                     } \
                                 } \
@@ -124,28 +119,6 @@ struct serialise_context
     bool check_eq = false;
     ///used for comparing serialisable objects
     bool is_eq_so_far = true;
-
-    std::vector<int> ownership_stack;
-
-    bool is_owned()
-    {
-        if(ownership_stack.size() == 0)
-            return false;
-
-        return ownership_stack.back();
-    }
-
-    void push_owned(bool own)
-    {
-        ownership_stack.push_back(own);
-    }
-
-    void pop_owned()
-    {
-        assert(ownership_stack.size() > 0);
-
-        ownership_stack.pop_back();
-    }
 };
 
 inline
@@ -231,7 +204,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, c
 {
     if(ctx.encode)
     {
-        if(ctx.is_owned() && serialisable_is_equal(&in, other))
+        if(serialisable_is_equal(&in, other))
             return;
 
         for(int i=0; i < N; i++)
@@ -281,7 +254,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
     {
         if(ctx.encode)
         {
-            if(ctx.is_owned() && serialisable_is_equal(&in, other))
+            if(serialisable_is_equal(&in, other))
                 return;
 
             data[name] = in;
@@ -332,6 +305,8 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
         if constexpr(!of_owned)
             data[name]["_c"] = in.size();
 
+        nlohmann::json& mname = data[name];
+
         T* fptr = nullptr;
 
         if(other)
@@ -354,14 +329,14 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
             {
                 for(int i=0; i < (int)in.size(); i++)
                 {
-                    do_serialise(ctx, data[name], in[i], std::to_string(i), &(*other)[i]);
+                    do_serialise(ctx, mname, in[i], std::to_string(i), &(*other)[i]);
                 }
             }
             else
             {
                 for(int i=0; i < (int)in.size(); i++)
                 {
-                    do_serialise(ctx, data[name], in[i], std::to_string(i), fptr);
+                    do_serialise(ctx, mname, in[i], std::to_string(i), fptr);
                 }
             }
             #endif // 0
@@ -370,7 +345,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
         {
             for(int i=0; i < (int)in.size(); i++)
             {
-                do_serialise(ctx, data[name], in[i], std::to_string(i), fptr);
+                do_serialise(ctx, mname, in[i], std::to_string(i), fptr);
             }
         }
     }
@@ -379,13 +354,15 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
         if(data.count(name) == 0)
             return;
 
+        nlohmann::json& mname = data[name];
+
         T* fptr = nullptr;
 
         if constexpr(!std::is_base_of_v<owned, std::remove_pointer_t<T>>)
         {
             //in = std::vector<T>();
 
-            int num = data[name]["_c"];
+            int num = mname["_c"];
 
             //printf("Num %i\n", num);
 
@@ -411,7 +388,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
             for(int i=0; i < num; i++)
             {
-                do_serialise(ctx, data[name], in[i], std::to_string(i), fptr);
+                do_serialise(ctx, mname, in[i], std::to_string(i), fptr);
             }
         }
 
@@ -421,53 +398,34 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
             mtype* nptr = nullptr;
 
-            //std::map<size_t, bool> received;
-            std::map<size_t, bool> has;
-
-            std::map<int, bool> dat;
-
             std::map<size_t, mtype*> old_element_map;
 
             for(auto& i : in)
             {
                 if constexpr(!std::is_pointer_v<T>)
                 {
-                    has[i._pid] = true;
                     old_element_map[i._pid] = &i;
                 }
 
                 if constexpr(std::is_pointer_v<T>)
                 {
-                    assert(i);
-
-                    has[i->_pid] = true;
                     old_element_map[i->_pid] = i;
                 }
             }
 
-            assert(data[name].count("_c") == 0);
-
-            for(auto& info : data[name].items())
-            {
-                //received[info.value()["_pid"]] = true;
-                dat[std::stoi(info.key())] = true;
-            }
-
-            ///remove any elements not received this tick
-            /*in.erase(std::remove_if(in.begin(), in.end(), [&](T& val)
-            {
-                return !received[val._pid];
-            }));*/
+            assert(mname.count("_c") == 0);
 
             std::vector<T> new_element_vector;
 
-            for(int i=0; i < (int)dat.size(); i++)
-            {
-                size_t _pid = data[name][std::to_string(i)]["_pid"];
+            int num = mname.size();
 
-                    if(has[_pid])
+            for(int i=0; i < num; i++)
+            {
+                size_t _pid = mname[std::to_string(i)]["_pid"];
+
+                if(old_element_map[_pid])
                 {
-                    do_serialise(ctx, data[name], *old_element_map[_pid], std::to_string(i), nptr);
+                    do_serialise(ctx, mname, *old_element_map[_pid], std::to_string(i), nptr);
 
                     if constexpr(!std::is_pointer_v<T>)
                         new_element_vector.push_back(*old_element_map[_pid]);
@@ -486,7 +444,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
                         nelem->_pid = _pid;
                     }
 
-                    do_serialise(ctx, data[name], nelem, std::to_string(i), fptr);
+                    do_serialise(ctx, mname, nelem, std::to_string(i), fptr);
 
                     new_element_vector.push_back(nelem);
                 }
