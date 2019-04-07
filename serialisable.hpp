@@ -63,7 +63,7 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                             if(auto it = ctx.inf.built.find(_pid); it != ctx.inf.built.end()) \
                             { \
                                 for(rpc_data& dat : it->second) \
-                                { printf("beep boop %s\n", dat.func.c_str());\
+                                { \
                                     if(dat.func == std::string(#x)) \
                                     { \
                                         exec_rpc(x, *this, dat.arg); \
