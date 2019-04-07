@@ -63,7 +63,7 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                             if(auto it = ctx.inf.built.find(_pid); it != ctx.inf.built.end()) \
                             { \
                                 for(rpc_data& dat : it->second) \
-                                { \
+                                { printf("beep boop %s\n", dat.func.c_str());\
                                     if(dat.func == std::string(#x)) \
                                     { \
                                         exec_rpc(x, *this, dat.arg); \
@@ -72,6 +72,11 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                             } \
                         } \
                   }while(0)
+
+#define FRIENDLY_RPC_NAME(function_name) template<typename... T> void function_name##_rpc(T&&... t) \
+{ \
+    rpc(#function_name , *this, &function_name, std::forward<T>(t)...);\
+} \
 
 struct serialisable
 {
@@ -674,7 +679,6 @@ void extract_args(std::tuple<T...>& in_tup, nlohmann::json& args)
         extract_args<N+1, M, T...>(in_tup, args);
     }
 }
-
 
 template<typename C, typename R, typename... Args>
 inline
