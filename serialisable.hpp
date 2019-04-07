@@ -5,6 +5,7 @@
 #include <type_traits>
 #include <vec/vec.hpp>
 #include <map>
+#include <iostream>
 
 ///its going to be this kind of file
 ///if this makes you sad its not getting any better from here
@@ -123,6 +124,9 @@ struct serialise_context
     bool is_eq_so_far = true;
 };
 
+template<typename T>
+nlohmann::json serialise(T& in);
+
 inline
 void args_to_nlohmann_1(nlohmann::json& in, serialise_context& ctx, int& idx)
 {
@@ -133,17 +137,7 @@ template<typename T, typename... U>
 inline
 void args_to_nlohmann_1(nlohmann::json& in, serialise_context& ctx, int& idx, T one, U&... two)
 {
-    constexpr bool is_base = std::is_base_of_v<serialisable, T>;
-
-    if constexpr(is_base)
-    {
-        one.serialise(ctx, in[idx]);
-    }
-
-    if constexpr(!is_base)
-    {
-        in[idx] = one;
-    }
+    in[idx] = serialise(one);
 
     idx++;
 
@@ -240,7 +234,10 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
 
         if constexpr(is_owned)
         {
-            data[name]["_pid"] = in._pid;
+            if(ctx.encode)
+                data[name]["_pid"] = in._pid;
+            else
+                in._pid = data[name]["_pid"];
         }
     }
 
@@ -570,6 +567,18 @@ nlohmann::json serialise(T& in)
         data = in;
     }
 
+    if constexpr(std::is_base_of_v<owned, T>)
+    {
+        if(ctx.encode)
+        {
+            data["_pid"] = in._pid;
+        }
+        else
+        {
+            in._pid = data["_pid"];
+        }
+    }
+
     return data;
 }
 
@@ -592,6 +601,18 @@ nlohmann::json serialise_against(T& in, T& against)
     if constexpr(!std::is_base_of_v<serialisable, T>)
     {
         data = in;
+    }
+
+    if constexpr(std::is_base_of_v<owned, T>)
+    {
+        if(ctx.encode)
+        {
+            data["_pid"] = in._pid;
+        }
+        else
+        {
+            in._pid = data["_pid"];
+        }
     }
 
     return data;
@@ -617,6 +638,19 @@ T deserialise(nlohmann::json& in)
         ret = (T)in;
     }
 
+    if constexpr(std::is_base_of_v<owned, T>)
+    {
+        if(ctx.encode && in.count("_pid") > 0)
+        {
+            in["_pid"] = ret._pid;
+        }
+
+        if(!ctx.encode)
+        {
+            ret._pid = in["_pid"];
+        }
+    }
+
     return ret;
 }
 
@@ -636,6 +670,19 @@ void deserialise(nlohmann::json& in, T& dat)
     if constexpr(!std::is_base_of_v<serialisable, T>)
     {
         dat = (T)in;
+    }
+
+    if constexpr(std::is_base_of_v<owned, T>)
+    {
+        if(ctx.encode && in.count("_pid") > 0)
+        {
+            in["_pid"] = dat._pid;
+        }
+
+        if(!ctx.encode)
+        {
+            dat._pid = in["_pid"];
+        }
     }
 }
 
@@ -701,6 +748,17 @@ bool serialisable_is_eq_impl(serialise_context& ctx, T& one, T& two)
         return false;
 
     constexpr bool is_serialisable = std::is_base_of_v<serialisable, T>;
+
+    constexpr bool is_owned = std::is_base_of_v<owned, T>;
+
+    if constexpr(is_owned)
+    {
+        if(one._pid != two._pid)
+        {
+            ctx.is_eq_so_far = false;
+            return false;
+        }
+    }
 
     if constexpr(!is_serialisable)
     {
