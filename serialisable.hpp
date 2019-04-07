@@ -76,7 +76,7 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
 #define FRIENDLY_RPC_NAME(function_name) template<typename... T> void function_name##_rpc(T&&... t) \
 { \
     rpc(#function_name , *this, &function_name, std::forward<T>(t)...);\
-} \
+}
 
 struct serialisable
 {
