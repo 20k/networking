@@ -126,7 +126,7 @@ void args_to_nlohmann_1(nlohmann::json& in, serialise_context& ctx, int& idx)
 
 template<typename T, typename... U>
 inline
-void args_to_nlohmann_1(nlohmann::json& in, serialise_context& ctx, int& idx, T& one, U&... two)
+void args_to_nlohmann_1(nlohmann::json& in, serialise_context& ctx, int& idx, T one, U&... two)
 {
     constexpr bool is_base = std::is_base_of_v<serialisable, T>;
 
