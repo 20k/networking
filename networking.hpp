@@ -16,12 +16,12 @@ struct write_data
     std::string data;
 };
 
-template<typename T>
+/*template<typename T>
 struct writes_data
 {
     uint64_t id = 0;
     T data = T();
-};
+};*/
 
 struct connection
 {
@@ -42,7 +42,7 @@ struct connection
     static inline thread_local int thread_is_server = 0;
 
     template<typename T>
-    writes_data<T> reads_from(T& old)
+    uint64_t reads_from(T& old)
     {
         write_data data = read_from();
 
@@ -50,16 +50,16 @@ struct connection
 
         deserialise<T>(nl, old);
 
-        return {data.id, old};
+        return data.id;
     }
 
 
-    template<typename T>
+    /*template<typename T>
     writes_data<T> reads_from()
     {
         T none = T();
         return reads_from(none);
-    }
+    }*/
 
     void write_to(const write_data& data);
     void write(const std::string& data);
