@@ -10,6 +10,8 @@
 #include <atomic>
 #include "serialisable.hpp"
 
+#include <SFML/System/Clock.hpp>
+
 struct write_data
 {
     uint64_t id = 0;

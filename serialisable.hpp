@@ -282,6 +282,43 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T*& in, const st
         do_serialise(ctx, data, *in, name, fptr);
 }
 
+/*template <typename T, typename Compare>
+std::vector<std::size_t> sort_permutation(
+    const std::vector<T>& vec,
+    Compare& compare)
+{
+    std::vector<std::size_t> p(vec.size());
+    std::iota(p.begin(), p.end(), 0);
+    std::sort(p.begin(), p.end(),
+        [&](std::size_t i, std::size_t j){ return compare(vec[i], vec[j]); });
+    return p;
+}
+
+template <typename T>
+void apply_permutation_in_place(
+    std::vector<T>& vec,
+    const std::vector<std::size_t>& p)
+{
+    std::vector<bool> done(vec.size());
+    for (std::size_t i = 0; i < vec.size(); ++i)
+    {
+        if (done[i])
+        {
+            continue;
+        }
+        done[i] = true;
+        std::size_t prev_j = i;
+        std::size_t j = p[i];
+        while (i != j)
+        {
+            std::swap(vec[prev_j], vec[j]);
+            done[j] = true;
+            prev_j = j;
+            j = p[j];
+        }
+    }
+}*/
+
 template<typename T>
 inline
 void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& in, const std::string& name, std::vector<T>* other)
@@ -347,10 +384,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
         nlohmann::json& mname = data[name];
 
-        T* fptr = nullptr;
-
         if constexpr(!is_owned)
         {
+            T* fptr = nullptr;
             //in = std::vector<T>();
 
             int num = mname["_c"];
@@ -394,17 +430,137 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
             for(auto& i : in)
             {
                 if constexpr(!std::is_pointer_v<T>)
-                {
                     old_element_map[i._pid] = &i;
+
+                if constexpr(std::is_pointer_v<T>)
+                    old_element_map[i->_pid] = i;
+            }
+
+            int resize_extra = 0;
+
+            std::vector<size_t> unprocessed_indices;
+
+            int num = mname.size();
+
+            std::map<size_t, size_t> pid_to_index;
+
+            for(int i=0; i < num; i++)
+            {
+                size_t pid = mname[std::to_string(i)]["_pid"];
+
+                pid_to_index[pid] = i;
+
+                if(old_element_map.find(pid) == old_element_map.end())
+                {
+                    unprocessed_indices.push_back(i);
+                    resize_extra++;
+                }
+            }
+
+            in.erase( std::remove_if(in.begin(), in.end(), [&](const T& my_val)
+            {
+                if constexpr(!std::is_pointer_v<T>)
+                    return pid_to_index.find(my_val._pid) == pid_to_index.end();
+                if constexpr(std::is_pointer_v<T>)
+                    return pid_to_index.find(my_val->_pid) == pid_to_index.end();
+            }),
+            in.end());
+
+            size_t old_size = in.size();
+
+            in.resize(old_size + resize_extra);
+
+            ///problem is we're serialising into old vector instead of new, ordering problems
+            for(size_t i=0; i < old_size; i++)
+            {
+                mtype* elem_ptr = nullptr;
+
+                if constexpr(!std::is_pointer_v<T>)
+                    elem_ptr = &in[i];
+
+                if constexpr(std::is_pointer_v<T>)
+                    elem_ptr = in[i];
+
+                size_t real_index = pid_to_index[elem_ptr->_pid];
+
+                ///our pid used to exist in the last iteration
+                do_serialise(ctx, mname, *elem_ptr, std::to_string(real_index), nptr);
+            }
+
+            /*std::map<size_t, bool> uniqueness;
+
+            for(auto& i : in)
+            {
+                if constexpr(!std::is_pointer_v<T>)
+                {
+                    assert(uniqueness.find(i._pid) == uniqueness.end());
+                    uniqueness[i._pid] = true;
                 }
 
                 if constexpr(std::is_pointer_v<T>)
                 {
-                    old_element_map[i->_pid] = i;
+                    assert(uniqueness.find(i->_pid) == uniqueness.end());
+                    uniqueness[i->_pid] = true;
                 }
+            }*/
+
+            for(size_t i=old_size; i < in.size(); i++)
+            {
+                int idx = i - old_size;
+
+                assert(idx < (int)unprocessed_indices.size());
+
+                int real_index = unprocessed_indices[idx];
+
+                size_t pid = mname[std::to_string(real_index)]["_pid"];
+
+                mtype* elem_ptr = nullptr;
+
+                if constexpr(!std::is_pointer_v<T>)
+                {
+                    elem_ptr = &in[i];
+                }
+
+                if constexpr(std::is_pointer_v<T>)
+                {
+                    in[i] = new mtype();
+                    elem_ptr = in[i];
+                }
+
+                elem_ptr->_pid = pid;
+
+                do_serialise(ctx, mname, *elem_ptr, std::to_string(real_index), nptr);
             }
 
-            assert(mname.count("_c") == 0);
+            assert(in.size() == num);
+
+            assert(num == (int)pid_to_index.size());
+            assert(pid_to_index.size() == in.size());
+
+            std::sort(in.begin(), in.end(), [&](auto& i1, auto& i2)
+            {
+                size_t pid1, pid2;
+
+                if constexpr(!std::is_pointer_v<T>)
+                {
+                    pid1 = i1._pid;
+                    pid2 = i2._pid;
+                }
+
+                if constexpr(std::is_pointer_v<T>)
+                {
+                    pid1 = i1->_pid;
+                    pid2 = i2->_pid;
+                }
+
+                return pid_to_index[pid1] < pid_to_index[pid2];
+            });
+
+            /*
+            //assert(mname.count("_c") == 0);
+
+            ///this is quite slow if T is not a pointer
+            ///fixme, is probably why deserialisation is so slow
 
             std::vector<T> new_element_vector;
 
@@ -441,7 +597,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
                 }
             }
 
-            in = new_element_vector;
+            in = new_element_vector;*/
+
+
         }
     }
 }
