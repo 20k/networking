@@ -508,7 +508,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
             {
                 int idx = i - old_size;
 
-                assert(idx < (int)unprocessed_indices.size());
+                //assert(idx < (int)unprocessed_indices.size());
 
                 int real_index = unprocessed_indices[idx];
 
@@ -532,10 +532,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
                 do_serialise(ctx, mname, *elem_ptr, std::to_string(real_index), nptr);
             }
 
-            assert(in.size() == num);
-
+            /*assert(in.size() == num);
             assert(num == (int)pid_to_index.size());
-            assert(pid_to_index.size() == in.size());
+            assert(pid_to_index.size() == in.size());*/
 
             std::sort(in.begin(), in.end(), [&](auto& i1, auto& i2)
             {
