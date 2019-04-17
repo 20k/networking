@@ -33,12 +33,12 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                                 if(other) \
                                 { \
                                     if(!serialisable_is_equal(&this->x, &other->x)) \
-                                        do_serialise(ctx, data, x, std::string(#x), &other->x); \
+                                        do_serialise(ctx, data, x, #x, &other->x); \
                                 }  \
                                 else \
                                 { \
                                     decltype(x)* fptr = nullptr;\
-                                    do_serialise(ctx, data, x, std::string(#x), fptr); \
+                                    do_serialise(ctx, data, x, #x, fptr); \
                                 } \
                             } \
                             if(ctx.exec_rpcs) \
@@ -76,8 +76,10 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
 
 #define FRIENDLY_RPC_NAME(function_name) template<typename... T> void function_name##_rpc(T&&... t) \
 { \
-    rpc(#function_name , *this, &function_name, std::forward<T>(t)...);\
+    rpc(#function_name , *this, std::forward<T>(t)...);\
 }
+
+std::string string_hash(const std::string& in);
 
 struct serialisable
 {
@@ -327,8 +329,8 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
     if(ctx.encode)
     {
-        //if(serialisable_is_equal(&in, other))
-        //    return;
+        if(serialisable_is_equal(&in, other))
+            return;
 
         if constexpr(!is_owned)
             data[name]["_c"] = in.size();
@@ -850,9 +852,9 @@ nlohmann::json load_from_file(const std::string& fname);
 ///we gotta do pointers basically
 ///or each frame, just before checking rpcs, make a map if ids to things that could be rpc'd
 ///bit dangerous though if we touch containers
-template<typename T, typename U, typename... V>
+template<typename T, typename... V>
 inline
-void rpc(const std::string& func_name, T& obj, U func, const V&... args)
+void rpc(const std::string& func_name, T& obj, const V&... args)
 {
     global_serialise_info& ser = get_global_serialise_info();
 
@@ -971,7 +973,7 @@ bool serialisable_is_eq_impl(serialise_context& ctx, std::map<T, U>& one, std::m
         if(two.find(i) == two.end())
             return false;
 
-        if(!serialisable_is_eq_impl(ctx, i.second, two[i]))
+        if(!serialisable_is_eq_impl(ctx, i.second, two[i.first]))
             return false;
     }
 
