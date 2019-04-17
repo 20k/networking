@@ -30,16 +30,11 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
 #define DO_SERIALISE(x) do{ \
                             if(ctx.serialisation) \
                             { \
+                                decltype(x)* fptr = nullptr;\
                                 if(other) \
-                                { \
-                                    if(!serialisable_is_equal(&this->x, &other->x)) \
-                                        do_serialise(ctx, data, x, #x, &other->x); \
-                                }  \
-                                else \
-                                { \
-                                    decltype(x)* fptr = nullptr;\
+                                    fptr = &other->x; \
+                                if(other == nullptr || !serialisable_is_equal(&this->x, fptr)) \
                                     do_serialise(ctx, data, x, #x, fptr); \
-                                } \
                             } \
                             if(ctx.exec_rpcs) \
                             { \
