@@ -74,9 +74,9 @@ nlohmann::json& nlohmann_index(nlohmann::json& data, int name)
     return data[name];
 }
 
-std::string string_hash(const std::string& in)
+uint32_t string_hash(const std::string& in)
 {
-    return std::to_string(MurmurHash2A(in.c_str(), in.size(), 1));
+    return MurmurHash2A(in.c_str(), in.size(), 1);
 }
 
 struct test_serialisable : serialisable

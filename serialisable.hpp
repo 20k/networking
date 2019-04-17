@@ -33,12 +33,12 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                                 if(other) \
                                 { \
                                     if(!serialisable_is_equal(&this->x, &other->x)) \
-                                        do_serialise(ctx, data, x, std::string(#x), &other->x); \
+                                        do_serialise(ctx, data, x, #x, &other->x); \
                                 }  \
                                 else \
                                 { \
                                     decltype(x)* fptr = nullptr;\
-                                    do_serialise(ctx, data, x, std::string(#x), fptr); \
+                                    do_serialise(ctx, data, x, #x, fptr); \
                                 } \
                             } \
                             if(ctx.exec_rpcs) \
@@ -79,7 +79,7 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
     rpc(#function_name , *this, std::forward<T>(t)...);\
 }
 
-std::string string_hash(const std::string& in);
+uint32_t string_hash(const std::string& in);
 
 bool nlohmann_has_name(const nlohmann::json& data, const std::string& name);
 bool nlohmann_has_name(const nlohmann::json& data, int name);
