@@ -33,7 +33,7 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                                 decltype(x)* fptr = nullptr;\
                                 if(other) \
                                     fptr = &other->x; \
-                                if(other == nullptr || !serialisable_is_equal(&this->x, fptr)) \
+                                if(other == nullptr || !serialisable_is_equal_cached(ctx, &this->x, fptr)) \
                                     do_serialise(ctx, data, x, #x, fptr); \
                             } \
                             if(ctx.exec_rpcs) \
@@ -121,10 +121,12 @@ struct serialise_context
     global_serialise_info inf;
     bool exec_rpcs = false;
 
-
+    bool caching = false;
     bool check_eq = false;
     ///used for comparing serialisable objects
     bool is_eq_so_far = true;
+
+    std::map<uint64_t, bool> cache;
 };
 
 template<typename T>
@@ -192,7 +194,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, c
 {
     if(ctx.encode)
     {
-        if(serialisable_is_equal(&in, other))
+        if(serialisable_is_equal_cached(ctx, &in, other))
             return;
 
         for(int i=0; i < N; i++)
@@ -231,6 +233,11 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
         {
             //if(std::is_base_of_v<owned, T> && serialisable_is_equal(&in, other))
             //    return;
+
+            /*bool eq_cached = serialisable_is_equal_cached(ctx, &in, other);
+
+            if(eq_cached)
+                return;*/
         }
 
         in.serialise(ctx, data[name], other);
@@ -248,7 +255,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
     {
         if(ctx.encode)
         {
-            if(serialisable_is_equal(&in, other))
+            if(serialisable_is_equal_cached(ctx, &in, other))
                 return;
 
             data[name] = in;
@@ -954,42 +961,64 @@ template<typename T>
 inline
 bool serialisable_is_eq_impl(serialise_context& ctx, T& one, T& two)
 {
-    if(!ctx.is_eq_so_far)
-        return false;
-
     constexpr bool is_serialisable = std::is_base_of_v<serialisable, T>;
 
     constexpr bool is_owned = std::is_base_of_v<owned, T>;
+
+    bool success = false;
+    bool has_success = false;
+    /*bool do_cache = false;
+
+    if(ctx.caching && is_serialisable && is_owned)
+    {
+        auto it_1 = ctx.cache.find((uint64_t)&one);
+
+        if(it_1 != ctx.cache.end())
+        {
+            return it_1->second;
+        }
+        else
+        {
+            do_cache = true;
+        }
+    }*/
 
     if constexpr(is_owned)
     {
         if(one._pid != two._pid)
         {
-            ctx.is_eq_so_far = false;
-            return false;
+            has_success = true;
         }
     }
 
     if constexpr(!is_serialisable)
     {
-        if(one != two)
+        if(!has_success)
         {
-            ctx.is_eq_so_far = false;
-            return false;
+            success = one == two;
+            has_success = true;
         }
-
-        return true;
     }
-
-    ///this hack is getting kind of bad
-    nlohmann::json dummy;
 
     if constexpr(is_serialisable)
     {
-        one.serialise(ctx, dummy, &two);
+        if(!has_success)
+        {
+            ///this hack is getting kind of bad
+            nlohmann::json dummy;
+
+            one.serialise(ctx, dummy, &two);
+            success = ctx.is_eq_so_far;
+            has_success = true;
+        }
     }
 
-    return ctx.is_eq_so_far;
+    /*if(do_cache)
+    {
+        ctx.cache[(uint64_t)&one] = success;
+    }*/
+
+    return success;
 }
 
 template<typename T>
@@ -1058,6 +1087,28 @@ bool serialisable_is_equal(T* one, T* two)
     ctx.check_eq = true;
 
     return serialisable_is_eq_impl(ctx, *one, *two);
+}
+
+template<typename T>
+inline
+bool serialisable_is_equal_cached(serialise_context& octx, T* one, T* two)
+{
+    if(one == nullptr && two == nullptr)
+        return true;
+
+    if(one == nullptr || two == nullptr)
+        return false;
+
+    serialise_context ctx;
+    ctx.check_eq = true;
+    ctx.cache = std::move(octx.cache);
+    ctx.caching = true;
+
+    bool res = serialisable_is_eq_impl(ctx, *one, *two);
+
+    octx.cache = std::move(ctx.cache);
+
+    return res;
 }
 
 template<typename T>
