@@ -430,7 +430,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
                 in.push_back(next);
             }*/
 
-            if(other == nullptr || other->size() != num)
+            if(other == nullptr || other->size() != (size_t)num)
             {
                 for(int i=0; i < num; i++)
                 {
