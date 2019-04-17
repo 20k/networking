@@ -81,6 +81,9 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
 
 std::string string_hash(const std::string& in);
 
+bool nlohmann_has_name(const nlohmann::json& data, const std::string& name);
+bool nlohmann_has_name(const nlohmann::json& data, int name);
+
 struct serialisable
 {
     //virtual void serialise(serialise_context& ctx, nlohmann::json& data){}
@@ -201,7 +204,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, c
     }
     else
     {
-        if(data.count(name) == 0)
+        if(!nlohmann_has_name(data, name))
             return;
 
         for(int i=0; i < N; i++)
@@ -222,7 +225,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
     {
         if(!ctx.encode)
         {
-            if(data.count(name) == 0)
+            if(!nlohmann_has_name(data, name))
                 return;
         }
 
@@ -254,7 +257,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const std
         }
         else
         {
-            if(data.count(name) == 0)
+            if(!nlohmann_has_name(data, name))
                 return;
 
             in = data[name];
@@ -381,7 +384,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
     }
     else
     {
-        if(data.count(name) == 0)
+        if(!nlohmann_has_name(data, name))
             return;
 
         nlohmann::json& mname = data[name];
@@ -631,7 +634,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& 
     }
     else
     {
-        if(data.count(name) == 0)
+        if(!nlohmann_has_name(data, name))
             return;
 
         int idx = 0;

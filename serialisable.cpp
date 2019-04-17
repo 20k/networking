@@ -28,9 +28,9 @@ uint32_t MurmurHash2A ( const void * key, int len, uint32_t seed )
 
     switch(len)
     {
-    case 3: t ^= data[2] << 16;
-    case 2: t ^= data[1] << 8;
-    case 1: t ^= data[0];
+    case 3: t ^= data[2] << 16; [[fallthrough]];
+    case 2: t ^= data[1] << 8; [[fallthrough]];
+    case 1: t ^= data[0]; [[fallthrough]];
     };
 
     mmix(h,t);
@@ -41,6 +41,16 @@ uint32_t MurmurHash2A ( const void * key, int len, uint32_t seed )
     h ^= h >> 15;
 
     return h;
+}
+
+bool nlohmann_has_name(const nlohmann::json& data, const std::string& name)
+{
+    return data.count(name) > 0;
+}
+
+bool nlohmann_has_name(const nlohmann::json& data, int name)
+{
+    return name < data.size();
 }
 
 std::string string_hash(const std::string& in)
