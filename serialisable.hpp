@@ -333,37 +333,49 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 {
     constexpr bool is_owned = std::is_base_of_v<owned, std::remove_pointer_t<T>>;
 
+    /*for(int i=0; i < (int)in.size() && i < (int)other->size(); i++)
+    {
+        if(serialisable_is_equal(&in[i], &(*other)[i]))
+            continue;
+
+        do_serialise(ctx, data[name], in[i], std::to_string(i), &(*other)[i]);
+    }
+
+    for(int i=(int)other->size(); i < (int)in.size(); i++)
+    {
+        do_serialise(ctx, data[name], in[i], std::to_string(i), fptr);
+    }*/
+
     if(ctx.encode)
     {
-        //if(serialisable_is_equal(&in, other))
-        //    return;
-
-        //if constexpr(!is_owned)
-        //    data[name]["_c"] = in.size();
-
         ///think the problem is that we're skipping elements in the array which confuses everything
-
-        nlohmann::json& mname = data[name];
-
         T* fptr = nullptr;
 
-        if(other)
+        if(!is_owned)
         {
-            /*for(int i=0; i < (int)in.size() && i < (int)other->size(); i++)
-            {
-                if(serialisable_is_equal(&in[i], &(*other)[i]))
-                    continue;
+            nlohmann::json& mname = data[name]["a"];
+            data[name]["m"] = in.size();
 
-                do_serialise(ctx, data[name], in[i], std::to_string(i), &(*other)[i]);
+            if(other && in.size() == other->size())
+            {
+                for(int i=0; i < (int)in.size(); i++)
+                {
+                    do_serialise(ctx, mname, in[i], std::to_string(i), &(*other)[i]);
+                }
             }
-
-            for(int i=(int)other->size(); i < (int)in.size(); i++)
+            else
             {
-                do_serialise(ctx, data[name], in[i], std::to_string(i), fptr);
-            }*/
+                for(int i=0; i < (int)in.size(); i++)
+                {
+                    do_serialise(ctx, mname, in[i], std::to_string(i), fptr);
+                }
+            }
+        }
+        else
+        {
+            nlohmann::json& mname = data[name];
 
-            #if 1
-            if(in.size() == other->size())
+            if(other && in.size() == other->size())
             {
                 for(int i=0; i < (int)in.size(); i++)
                 {
@@ -380,55 +392,27 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
                     do_serialise(ctx, mname, in[i], i, fptr);
                 }
             }
-            #endif // 0
         }
-        else
-        {
-            for(int i=0; i < (int)in.size(); i++)
-            {
-                do_serialise(ctx, mname, in[i], i, fptr);
-            }
-        }
+
     }
     else
     {
         if(!nlohmann_has_name(data, name))
             return;
 
-        nlohmann::json& mname = data[name];
-
         if constexpr(!is_owned)
         {
+            nlohmann::json& mname = data[name]["a"];
+            int num = data[name]["m"];
+
             T* fptr = nullptr;
-            //in = std::vector<T>();
 
-            //int num = mname["_c"];
-
-            //int old_num = in.size();
-
-            int num = mname.size();
-
-            //printf("Num %i\n", num);
-
-            /*std::map<int, nlohmann::json> dat;
-
-            for(auto& info : data[name].items())
-            {
-                dat[std::stoi(info.key())] = info.value();
-            }*/
+            /*int num = mname.size();
 
             if(num < 0 || num >= 100000)
                 throw std::runtime_error("Num out of range");
 
             in.resize(num);
-
-            /*for(int i=0; i < (int)dat.size(); i++)
-            {
-                T next = T();
-                do_serialise(ctx, data[name], next, std::to_string(i), fptr);
-
-                in.push_back(next);
-            }*/
 
             if(other == nullptr || other->size() != (size_t)num)
             {
@@ -443,11 +427,45 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
                 {
                     do_serialise(ctx, mname, in[i], i, &(*other)[i]);
                 }
+            }*/
+
+            //int num = mname.size();
+
+            if(num < 0 || num >= 100000)
+                throw std::runtime_error("Num out of range");
+
+            in.resize(num);
+
+            if(other == nullptr || other->size() != (size_t)num)
+            {
+                for(auto& i : mname.items())
+                {
+                    int idx = std::stoi(i.key());
+
+                    if(idx < 0 || idx >= (int)in.size())
+                        throw std::runtime_error("Bad");
+
+                    do_serialise(ctx, mname, in[idx], std::to_string(idx), fptr);
+                }
+            }
+            else
+            {
+                for(auto& i : mname.items())
+                {
+                    int idx = std::stoi(i.key());
+
+                    if(idx < 0 || idx >= (int)in.size())
+                        throw std::runtime_error("Bad");
+
+                    do_serialise(ctx, mname, in[idx], std::to_string(idx), &(*other)[idx]);
+                }
             }
         }
 
         if constexpr(is_owned)
         {
+            nlohmann::json& mname = data[name];
+
             using mtype = std::remove_pointer_t<T>;
 
             mtype* nptr = nullptr;
