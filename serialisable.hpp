@@ -135,12 +135,13 @@ struct serialise_context_proxy
     nlohmann::json& last;
 
     serialise_context_proxy(serialise_context& in);
-    //serialise_context_proxy(serialise_context_proxy& in, const );
+    serialise_context_proxy(serialise_context_proxy& in, const char* name);
+    serialise_context_proxy(serialise_context_proxy& in, int name);
 };*/
 
 struct serialise_context
 {
-    //nlohmann::json data;
+    nlohmann::json data;
     nlohmann::json faux; ///fake nlohmann
 
     bool encode = false;

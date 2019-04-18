@@ -74,6 +74,13 @@ nlohmann::json& nlohmann_index(nlohmann::json& data, int name)
     return data[name];
 }
 
+/*serialise_context_proxy::serialise_context_proxy(serialise_context& ctx) : last(ctx.data) {}
+
+serialise_context_proxy::serialise_context_proxy(serialise_context_proxy& ctx, const char* name) : last(ctx.last[name]) {}
+serialise_context_proxy::serialise_context_proxy(serialise_context_proxy& ctx, int name) : last(ctx.last[name]) {}*/
+
+
+
 uint32_t string_hash(const std::string& in)
 {
     return MurmurHash2A(in.c_str(), in.size(), 1);
