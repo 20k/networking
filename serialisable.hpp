@@ -82,12 +82,10 @@ bool nlohmann_has_name(const nlohmann::json& data, const char* name)
     auto it = data.find(name);
 
     return it != data.end() && !it->is_null();
-
-    //return data.count(name) > 0 && !data[name].is_null();
 }
 
 inline
-bool nlohmann_has_name(const nlohmann::json& data, int name)
+bool nlohmann_has_name(const nlohmann::json& data, size_t name)
 {
     return name < data.size() && !data[name].is_null();
 }
