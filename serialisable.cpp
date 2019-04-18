@@ -43,7 +43,7 @@ uint32_t MurmurHash2A ( const void * key, int len, uint32_t seed )
     return h;
 }
 
-bool nlohmann_has_name(const nlohmann::json& data, const std::string& name)
+/*bool nlohmann_has_name(const nlohmann::json& data, const std::string& name)
 {
     return data.count(name) > 0 && !data[name].is_null();
 }
@@ -51,7 +51,7 @@ bool nlohmann_has_name(const nlohmann::json& data, const std::string& name)
 bool nlohmann_has_name(const nlohmann::json& data, int name)
 {
     return name < data.size() && !data[name].is_null();
-}
+}*/
 
 nlohmann::json& nlohmann_index(nlohmann::json& data, const std::string& name)
 {

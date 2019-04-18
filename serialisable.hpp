@@ -76,8 +76,29 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
 
 uint32_t string_hash(const std::string& in);
 
-bool nlohmann_has_name(const nlohmann::json& data, const std::string& name);
-bool nlohmann_has_name(const nlohmann::json& data, int name);
+inline
+bool nlohmann_has_name(const nlohmann::json& data, const char* name)
+{
+    auto it = data.find(name);
+
+    return it != data.end() && !it->is_null();
+
+    //return data.count(name) > 0 && !data[name].is_null();
+}
+
+inline
+bool nlohmann_has_name(const nlohmann::json& data, int name)
+{
+    return name < data.size() && !data[name].is_null();
+}
+
+inline
+bool nlohmann_has_name(const nlohmann::json& data, const std::string& name)
+{
+    auto it = data.find(name);
+
+    return it != data.end() && !it->is_null();
+}
 
 nlohmann::json& nlohmann_index(nlohmann::json& data, const std::string& name);
 nlohmann::json& nlohmann_index(nlohmann::json& data, int name);
@@ -108,6 +129,16 @@ struct global_serialise_info : serialisable
 
     SERIALISE_SIGNATURE();
 };
+
+/*struct serialise_context;
+
+struct serialise_context_proxy
+{
+    nlohmann::json& last;
+
+    serialise_context_proxy(serialise_context& in);
+    //serialise_context_proxy(serialise_context_proxy& in, const );
+};*/
 
 struct serialise_context
 {
