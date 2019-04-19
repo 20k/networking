@@ -314,7 +314,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
 
             if constexpr(std::is_base_of_v<owned, T>)
             {
-                if(ctx.ratelimit && ctx.stagger_stack > 0 && (ctx.stagger_id % 32) != (in._pid % 32))
+                if(ctx.ratelimit && ctx.stagger_stack > 0 && (size_t)(ctx.stagger_id % 32) != (in._pid % 32))
                 {
                     //data[name][PID_STRING] = in._pid;
                     return;
