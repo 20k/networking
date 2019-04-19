@@ -65,7 +65,7 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                                 if(stagger == ratelimits::STAGGER) \
                                     ctx.stagger_stack++; \
                                 \
-                                if(!skip && (other == nullptr || !serialisable_is_equal_cached(ctx, &this->x, fptr))) \
+                                if(!skip && (other == nullptr || !ctx.encode || !serialisable_is_equal_cached(ctx, &this->x, fptr))) \
                                     do_serialise(ctx, data, x, s##_x, fptr); \
                                 \
                                 if(stagger == ratelimits::STAGGER) \
@@ -304,9 +304,6 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
 
         if(ctx.encode)
         {
-            if(serialisable_is_equal(&in, other))
-                return;
-
             /*bool eq_cached = serialisable_is_equal_cached(ctx, &in, other);
 
             if(eq_cached)
@@ -314,12 +311,17 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
 
             if constexpr(std::is_base_of_v<owned, T>)
             {
-                if(ctx.ratelimit && ctx.stagger_stack > 0 && (size_t)(ctx.stagger_id % 32) != (in._pid % 32))
+                if(ctx.ratelimit && ctx.stagger_stack > 0)
                 {
+                    if((ctx.stagger_id % 2) != (in._pid % 2))
+                        return;
+
                     //data[name][PID_STRING] = in._pid;
-                    return;
                 }
             }
+
+            if(serialisable_is_equal(&in, other))
+                return;
         }
 
         in.serialise(ctx, data[name], other);
@@ -534,13 +536,13 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
                     do_serialise(ctx, mname, in[idx], std::to_string(idx), &(*other)[idx]);
                 }
 
-                if constexpr(is_owned)
+                /*if constexpr(is_owned)
                 {
                     if constexpr(std::is_pointer_v<T>)
                         in[idx]->_pid = mname[std::to_string(idx)][PID_STRING];
                     if constexpr(!std::is_pointer_v<T>)
                         in[idx]._pid = mname[std::to_string(idx)][PID_STRING];
-                }
+                }*/
             }
         }
 
