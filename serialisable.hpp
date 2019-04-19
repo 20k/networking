@@ -304,13 +304,22 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
 
         if(ctx.encode)
         {
-            //if(std::is_base_of_v<owned, T> && serialisable_is_equal(&in, other))
-            //    return;
+            if(serialisable_is_equal(&in, other))
+                return;
 
             /*bool eq_cached = serialisable_is_equal_cached(ctx, &in, other);
 
             if(eq_cached)
                 return;*/
+
+            if constexpr(std::is_base_of_v<owned, T>)
+            {
+                if(ctx.ratelimit && ctx.stagger_stack > 0 && (ctx.stagger_id % 32) != (in._pid % 32))
+                {
+                    //data[name][PID_STRING] = in._pid;
+                    return;
+                }
+            }
         }
 
         in.serialise(ctx, data[name], other);
@@ -448,23 +457,21 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
         }
         else
         {
-            nlohmann::json& mname = data[name];
+            nlohmann::json& mname = data[name]["a"];
+            data[name]["c"] = in.size();
 
             if(other && in.size() == other->size())
             {
                 for(int i=0; i < (int)in.size(); i++)
                 {
-                    ///force array element
-                    mname[i] = nlohmann::json(nullptr);
-
-                    do_serialise(ctx, mname, in[i], i, &(*other)[i]);
+                    do_serialise(ctx, mname, in[i], std::to_string(i), &(*other)[i]);
                 }
             }
             else
             {
                 for(int i=0; i < (int)in.size(); i++)
                 {
-                    do_serialise(ctx, mname, in[i], i, fptr);
+                    do_serialise(ctx, mname, in[i], std::to_string(i), fptr);
                 }
             }
         }
@@ -475,7 +482,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
         if(!nlohmann_has_name(data, name))
             return;
 
-        if constexpr(!is_owned)
+        //if constexpr(!is_owned)
         {
             nlohmann::json& mname = data[name]["a"];
             int num = data[name]["c"];
@@ -511,38 +518,38 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
             in.resize(num);
 
-            if(other == nullptr || other->size() != (size_t)num)
+            for(auto& i : mname.items())
             {
-                for(auto& i : mname.items())
+                int idx = std::stoi(i.key());
+
+                if(idx < 0 || idx >= (int)in.size())
+                    throw std::runtime_error("Bad");
+
+                if(other == nullptr || other->size() != (size_t)num)
                 {
-                    int idx = std::stoi(i.key());
-
-                    if(idx < 0 || idx >= (int)in.size())
-                        throw std::runtime_error("Bad");
-
                     do_serialise(ctx, mname, in[idx], std::to_string(idx), fptr);
                 }
-            }
-            else
-            {
-                for(auto& i : mname.items())
+                else
                 {
-                    int idx = std::stoi(i.key());
-
-                    if(idx < 0 || idx >= (int)in.size())
-                        throw std::runtime_error("Bad");
-
                     do_serialise(ctx, mname, in[idx], std::to_string(idx), &(*other)[idx]);
+                }
+
+                if constexpr(is_owned)
+                {
+                    if constexpr(std::is_pointer_v<T>)
+                        in[idx]->_pid = mname[std::to_string(idx)][PID_STRING];
+                    if constexpr(!std::is_pointer_v<T>)
+                        in[idx]._pid = mname[std::to_string(idx)][PID_STRING];
                 }
             }
         }
 
-        if constexpr(is_owned)
+        /*if constexpr(is_owned)
         {
-            nlohmann::json& mname = data[name];
+            nlohmann::json& mname = data[name]["a"];
+            int num = data[name]["c"];
 
             using mtype = std::remove_pointer_t<T>;
-
             mtype* nptr = nullptr;
 
             std::map<size_t, mtype*> old_element_map;
@@ -560,7 +567,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
             std::vector<size_t> unprocessed_indices;
 
-            int num = mname.size();
+            //int num = mname.size();
 
             std::map<size_t, size_t> pid_to_index;
 
@@ -620,22 +627,6 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
                 }
             }
 
-            /*std::map<size_t, bool> uniqueness;
-
-            for(auto& i : in)
-            {
-                if constexpr(!std::is_pointer_v<T>)
-                {
-                    assert(uniqueness.find(i._pid) == uniqueness.end());
-                    uniqueness[i._pid] = true;
-                }
-
-                if constexpr(std::is_pointer_v<T>)
-                {
-                    assert(uniqueness.find(i->_pid) == uniqueness.end());
-                    uniqueness[i->_pid] = true;
-                }
-            }*/
 
             for(size_t i=old_size; i < in.size(); i++)
             {
@@ -665,10 +656,6 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
                 do_serialise(ctx, mname, *elem_ptr, real_index, nptr);
             }
 
-            /*assert(in.size() == num);
-            assert(num == (int)pid_to_index.size());
-            assert(pid_to_index.size() == in.size());*/
-
             std::sort(in.begin(), in.end(), [&](auto& i1, auto& i2)
             {
                 size_t pid1, pid2;
@@ -687,52 +674,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
                 return pid_to_index[pid1] < pid_to_index[pid2];
             });
-
-            /*
-            //assert(mname.count("_c") == 0);
-
-            ///this is quite slow if T is not a pointer
-            ///fixme, is probably why deserialisation is so slow
-
-            std::vector<T> new_element_vector;
-
-            int num = mname.size();
-
-            for(int i=0; i < num; i++)
-            {
-                size_t _pid = mname[std::to_string(i)]["_pid"];
-
-                if(old_element_map[_pid])
-                {
-                    do_serialise(ctx, mname, *old_element_map[_pid], std::to_string(i), nptr);
-
-                    if constexpr(!std::is_pointer_v<T>)
-                        new_element_vector.push_back(*old_element_map[_pid]);
-                    if constexpr(std::is_pointer_v<T>)
-                        new_element_vector.push_back(old_element_map[_pid]);
-                }
-                else
-                {
-                    T nelem = T();
-
-                    if constexpr(!std::is_pointer_v<T>)
-                        nelem._pid = _pid;
-                    if constexpr(std::is_pointer_v<T>)
-                    {
-                        nelem = new mtype();
-                        nelem->_pid = _pid;
-                    }
-
-                    do_serialise(ctx, mname, nelem, std::to_string(i), fptr);
-
-                    new_element_vector.push_back(nelem);
-                }
-            }
-
-            in = new_element_vector;*/
-
-
-        }
+        }*/
     }
 }
 
