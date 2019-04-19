@@ -31,7 +31,7 @@ using self_t = typename class_extractor<decltype(&_internal_helper)>::class_t;\
 void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nullptr)
 
 #define DO_SERIALISE(x) do{ \
-                            static thread_local std::string s##_x = std::to_string(id_counter++);\
+                            static thread_local auto s##_x = std::to_string(id_counter++);\
                             if(ctx.serialisation) \
                             { \
                                 decltype(x)* fptr = nullptr;\
