@@ -281,9 +281,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
         if constexpr(is_owned)
         {
             if(ctx.encode)
-                data[name]["_"] = in._pid;
+                data[name][PID_STRING] = in._pid;
             else
-                in._pid = data[name]["_"];
+                in._pid = data[name][PID_STRING];
         }
     }
 
@@ -305,7 +305,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
 
             if constexpr(is_owned)
             {
-                in._pid = data[name]["_"];
+                in._pid = data[name][PID_STRING];
             }
         }
     }
@@ -529,7 +529,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
             for(int i=0; i < num; i++)
             {
-                size_t pid = mname[i]["_"];
+                size_t pid = mname[i][PID_STRING];
 
                 pid_to_index[pid] = i;
 
@@ -608,7 +608,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
                 int real_index = unprocessed_indices[idx];
 
-                size_t pid = mname[real_index]["_"];
+                size_t pid = mname[real_index][PID_STRING];
 
                 mtype* elem_ptr = nullptr;
 
@@ -824,11 +824,11 @@ nlohmann::json serialise(T& in)
     {
         if(ctx.encode)
         {
-            data["_"] = in._pid;
+            data[PID_STRING] = in._pid;
         }
         else
         {
-            in._pid = data["_"];
+            in._pid = data[PID_STRING];
         }
     }
 
@@ -860,11 +860,11 @@ nlohmann::json serialise_against(T& in, T& against)
     {
         if(ctx.encode)
         {
-            data["_"] = in._pid;
+            data[PID_STRING] = in._pid;
         }
         else
         {
-            in._pid = data["_"];
+            in._pid = data[PID_STRING];
         }
     }
 
@@ -893,14 +893,14 @@ T deserialise(nlohmann::json& in)
 
     if constexpr(std::is_base_of_v<owned, T>)
     {
-        if(ctx.encode && in.count("_") > 0)
+        if(ctx.encode && in.count(PID_STRING) > 0)
         {
-            in["_"] = ret._pid;
+            in[PID_STRING] = ret._pid;
         }
 
         if(!ctx.encode)
         {
-            ret._pid = in["_"];
+            ret._pid = in[PID_STRING];
         }
     }
 
@@ -927,14 +927,14 @@ void deserialise(nlohmann::json& in, T& dat)
 
     if constexpr(std::is_base_of_v<owned, T>)
     {
-        if(ctx.encode && in.count("_") > 0)
+        if(ctx.encode && in.count(PID_STRING) > 0)
         {
-            in["_"] = dat._pid;
+            in[PID_STRING] = dat._pid;
         }
 
         if(!ctx.encode)
         {
-            dat._pid = in["_"];
+            dat._pid = in[PID_STRING];
         }
     }
 }
