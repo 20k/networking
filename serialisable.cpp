@@ -208,7 +208,7 @@ void serialise_tests()
 
     dat_3.test_owned.push_back(add_data);
 
-    nlohmann::json ser_data = serialise_against(dat_3, dat_2);
+    nlohmann::json ser_data = serialise_against(dat_3, dat_2, false, 0);
 
     data_2 mdata = dat_2;
 

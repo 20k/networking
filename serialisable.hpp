@@ -23,6 +23,15 @@ bool serialisable_is_equal(T* one, T* two);
 
 struct serialise_context;
 
+namespace ratelimits
+{
+    enum stagger_mode
+    {
+        NO_STAGGER,
+        STAGGER,
+    };
+}
+
 #define PID_STRING "_"
 
 #define SERIALISE_SIGNATURE() static inline uint32_t id_counter = 0;\
@@ -31,9 +40,9 @@ void _internal_helper(){}\
 using self_t = typename class_extractor<decltype(&_internal_helper)>::class_t;\
 void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nullptr)
 
-#define DO_SERIALISE_RATELIMIT(x, rlim) do{ \
-                            static uint32_t my_id = id_counter++; \
-                            static std::string s##_x = std::to_string(my_id);\
+#define DO_SERIALISE_RATELIMIT(x, rlim, stagger) do{ \
+                            static uint32_t my_id##_x = id_counter++; \
+                            static std::string s##_x = std::to_string(my_id##_x);\
                             if(ctx.serialisation) \
                             { \
                                 decltype(x)* fptr = nullptr;\
@@ -48,12 +57,19 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                                 { \
                                     size_t current_time = time_ms(); \
                                     \
-                                    if(current_time < last_ratelimit_time[my_id] + rlim) \
+                                    if(current_time < last_ratelimit_time[my_id##_x] + rlim) \
                                         skip = true; \
+                                    else \
+                                        last_ratelimit_time[my_id##_x] = current_time; \
                                 } \
+                                if(stagger == ratelimits::STAGGER) \
+                                    ctx.stagger_stack++; \
                                 \
                                 if(!skip && (other == nullptr || !serialisable_is_equal_cached(ctx, &this->x, fptr))) \
                                     do_serialise(ctx, data, x, s##_x, fptr); \
+                                \
+                                if(stagger == ratelimits::STAGGER) \
+                                    ctx.stagger_stack--; \
                             } \
                             if(ctx.exec_rpcs) \
                             { \
@@ -72,7 +88,7 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                             } \
                         }while(0)
 
-#define DO_SERIALISE(x) DO_SERIALISE_RATELIMIT(x, 0)
+#define DO_SERIALISE(x) DO_SERIALISE_RATELIMIT(x, 0, ratelimits::NO_STAGGER)
 
 #define DO_RPC(x) do{ \
                         if(ctx.exec_rpcs) \
@@ -182,6 +198,8 @@ struct serialise_context
     std::map<uint64_t, bool> cache;
 
     bool ratelimit = false;
+    int stagger_id = 0;
+    int stagger_stack = 0;
 };
 
 template<typename T>
@@ -857,11 +875,13 @@ nlohmann::json serialise(T& in)
 ///produces the serialisation of in, assuming that the client has against
 template<typename T>
 inline
-nlohmann::json serialise_against(T& in, T& against)
+nlohmann::json serialise_against(T& in, T& against, bool ratelimit, int stagger_id)
 {
     serialise_context ctx;
     ctx.encode = true;
     ctx.serialisation = true;
+    ctx.ratelimit = ratelimit;
+    ctx.stagger_id = stagger_id;
 
     nlohmann::json data;
 
