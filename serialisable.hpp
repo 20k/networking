@@ -392,7 +392,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
         if(!is_owned)
         {
             nlohmann::json& mname = data[name]["a"];
-            data[name]["m"] = in.size();
+            data[name]["c"] = in.size();
 
             if(other && in.size() == other->size())
             {
@@ -441,7 +441,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
         if constexpr(!is_owned)
         {
             nlohmann::json& mname = data[name]["a"];
-            int num = data[name]["m"];
+            int num = data[name]["c"];
 
             T* fptr = nullptr;
 
