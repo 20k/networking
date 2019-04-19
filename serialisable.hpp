@@ -25,13 +25,13 @@ struct serialise_context;
 
 #define PID_STRING "_"
 
-#define SERIALISE_SIGNATURE() static inline thread_local uint32_t id_counter = 0;\
+#define SERIALISE_SIGNATURE() static inline uint32_t id_counter = 0;\
 void _internal_helper(){}\
 using self_t = typename class_extractor<decltype(&_internal_helper)>::class_t;\
 void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nullptr)
 
 #define DO_SERIALISE(x) do{ \
-                            static thread_local auto s##_x = std::to_string(id_counter++);\
+                            static std::string s##_x = std::to_string(id_counter++);\
                             if(ctx.serialisation) \
                             { \
                                 decltype(x)* fptr = nullptr;\
