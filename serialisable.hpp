@@ -44,7 +44,7 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                                 last_ratelimit_time.resize(id_counter); \
                                 \
                                 bool skip = false; \
-                                if(ctx.ratelimit && rlim > 0) \
+                                if(ctx.ratelimit && ctx.encode && rlim > 0) \
                                 { \
                                     size_t current_time = time_ms(); \
                                     \
