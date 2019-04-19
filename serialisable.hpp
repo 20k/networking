@@ -26,18 +26,33 @@ struct serialise_context;
 #define PID_STRING "_"
 
 #define SERIALISE_SIGNATURE() static inline uint32_t id_counter = 0;\
+std::vector<size_t> last_ratelimit_time; \
 void _internal_helper(){}\
 using self_t = typename class_extractor<decltype(&_internal_helper)>::class_t;\
 void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nullptr)
 
-#define DO_SERIALISE(x) do{ \
-                            static std::string s##_x = std::to_string(id_counter++);\
+#define DO_SERIALISE_RATELIMIT(x, rlim) do{ \
+                            static uint32_t my_id = id_counter++; \
+                            static std::string s##_x = std::to_string(my_id);\
                             if(ctx.serialisation) \
                             { \
                                 decltype(x)* fptr = nullptr;\
+                                \
                                 if(other) \
                                     fptr = &other->x; \
-                                if(other == nullptr || !serialisable_is_equal_cached(ctx, &this->x, fptr)) \
+                                \
+                                last_ratelimit_time.resize(id_counter); \
+                                \
+                                bool skip = false; \
+                                if(ctx.ratelimit && rlim > 0) \
+                                { \
+                                    size_t current_time = time_ms(); \
+                                    \
+                                    if(current_time < last_ratelimit_time[my_id] + rlim) \
+                                        skip = true; \
+                                } \
+                                \
+                                if(!skip && (other == nullptr || !serialisable_is_equal_cached(ctx, &this->x, fptr))) \
                                     do_serialise(ctx, data, x, s##_x, fptr); \
                             } \
                             if(ctx.exec_rpcs) \
@@ -56,6 +71,8 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                                 } \
                             } \
                         }while(0)
+
+#define DO_SERIALISE(x) DO_SERIALISE_RATELIMIT(x, 0)
 
 #define DO_RPC(x) do{ \
                         if(ctx.exec_rpcs) \
@@ -163,6 +180,8 @@ struct serialise_context
     bool is_eq_so_far = true;
 
     std::map<uint64_t, bool> cache;
+
+    bool ratelimit = false;
 };
 
 template<typename T>
