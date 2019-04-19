@@ -23,18 +23,22 @@ bool serialisable_is_equal(T* one, T* two);
 
 struct serialise_context;
 
-#define SERIALISE_SIGNATURE() void _internal_helper(){}\
+#define PID_STRING "_"
+
+#define SERIALISE_SIGNATURE() static inline thread_local uint32_t id_counter = 0;\
+void _internal_helper(){}\
 using self_t = typename class_extractor<decltype(&_internal_helper)>::class_t;\
 void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nullptr)
 
 #define DO_SERIALISE(x) do{ \
+                            static thread_local std::string s##_x = std::to_string(id_counter++);\
                             if(ctx.serialisation) \
                             { \
                                 decltype(x)* fptr = nullptr;\
                                 if(other) \
                                     fptr = &other->x; \
                                 if(other == nullptr || !serialisable_is_equal_cached(ctx, &this->x, fptr)) \
-                                    do_serialise(ctx, data, x, #x, fptr); \
+                                    do_serialise(ctx, data, x, s##_x, fptr); \
                             } \
                             if(ctx.exec_rpcs) \
                             { \
@@ -75,6 +79,8 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
 }
 
 uint32_t string_hash(const std::string& in);
+
+//uint32_t hacky_string_hash(const char* static_string);
 
 inline
 bool nlohmann_has_name(const nlohmann::json& data, const char* name)
@@ -275,9 +281,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
         if constexpr(is_owned)
         {
             if(ctx.encode)
-                data[name]["_pid"] = in._pid;
+                data[name]["_"] = in._pid;
             else
-                in._pid = data[name]["_pid"];
+                in._pid = data[name]["_"];
         }
     }
 
@@ -299,7 +305,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
 
             if constexpr(is_owned)
             {
-                in._pid = data[name]["_pid"];
+                in._pid = data[name]["_"];
             }
         }
     }
@@ -523,7 +529,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
             for(int i=0; i < num; i++)
             {
-                size_t pid = mname[i]["_pid"];
+                size_t pid = mname[i]["_"];
 
                 pid_to_index[pid] = i;
 
@@ -602,7 +608,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
                 int real_index = unprocessed_indices[idx];
 
-                size_t pid = mname[real_index]["_pid"];
+                size_t pid = mname[real_index]["_"];
 
                 mtype* elem_ptr = nullptr;
 
@@ -818,11 +824,11 @@ nlohmann::json serialise(T& in)
     {
         if(ctx.encode)
         {
-            data["_pid"] = in._pid;
+            data["_"] = in._pid;
         }
         else
         {
-            in._pid = data["_pid"];
+            in._pid = data["_"];
         }
     }
 
@@ -854,11 +860,11 @@ nlohmann::json serialise_against(T& in, T& against)
     {
         if(ctx.encode)
         {
-            data["_pid"] = in._pid;
+            data["_"] = in._pid;
         }
         else
         {
-            in._pid = data["_pid"];
+            in._pid = data["_"];
         }
     }
 
@@ -887,14 +893,14 @@ T deserialise(nlohmann::json& in)
 
     if constexpr(std::is_base_of_v<owned, T>)
     {
-        if(ctx.encode && in.count("_pid") > 0)
+        if(ctx.encode && in.count("_") > 0)
         {
-            in["_pid"] = ret._pid;
+            in["_"] = ret._pid;
         }
 
         if(!ctx.encode)
         {
-            ret._pid = in["_pid"];
+            ret._pid = in["_"];
         }
     }
 
@@ -921,14 +927,14 @@ void deserialise(nlohmann::json& in, T& dat)
 
     if constexpr(std::is_base_of_v<owned, T>)
     {
-        if(ctx.encode && in.count("_pid") > 0)
+        if(ctx.encode && in.count("_") > 0)
         {
-            in["_pid"] = dat._pid;
+            in["_"] = dat._pid;
         }
 
         if(!ctx.encode)
         {
-            dat._pid = in["_pid"];
+            dat._pid = in["_"];
         }
     }
 }
