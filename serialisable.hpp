@@ -893,15 +893,7 @@ T deserialise(nlohmann::json& in)
 
     if constexpr(std::is_base_of_v<owned, T>)
     {
-        if(ctx.encode && in.count(PID_STRING) > 0)
-        {
-            in[PID_STRING] = ret._pid;
-        }
-
-        if(!ctx.encode)
-        {
-            ret._pid = in[PID_STRING];
-        }
+        ret._pid = in[PID_STRING];
     }
 
     return ret;
@@ -927,15 +919,7 @@ void deserialise(nlohmann::json& in, T& dat)
 
     if constexpr(std::is_base_of_v<owned, T>)
     {
-        if(ctx.encode && in.count(PID_STRING) > 0)
-        {
-            in[PID_STRING] = dat._pid;
-        }
-
-        if(!ctx.encode)
-        {
-            dat._pid = in[PID_STRING];
-        }
+        dat._pid = in[PID_STRING];
     }
 }
 
