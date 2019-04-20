@@ -294,14 +294,11 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
     constexpr bool is_serialisable = std::is_base_of_v<serialisable, T>;
     constexpr bool is_owned = std::is_base_of_v<owned, T>;
 
+    if(!ctx.encode && !nlohmann_has_name(data, name))
+        return;
+
     if constexpr(is_serialisable)
     {
-        if(!ctx.encode)
-        {
-            if(!nlohmann_has_name(data, name))
-                return;
-        }
-
         if(ctx.encode)
         {
             /*bool eq_cached = serialisable_is_equal_cached(ctx, &in, other);
@@ -313,7 +310,8 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
             {
                 if(ctx.ratelimit && ctx.stagger_stack > 0)
                 {
-                    if((ctx.stagger_id % 2) != (in._pid % 2))
+                    ///the problem with this i think, is that if we store subcomponents with non congruent stuff itll never be sent
+                    if((ctx.stagger_id % 32) != (int)(in._pid % 32))
                         return;
 
                     //data[name][PID_STRING] = in._pid;
@@ -324,7 +322,15 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
                 return;
         }
 
+        bool staggering = ctx.stagger_stack > 0;
+
+        if(staggering)
+            ctx.stagger_stack--;
+
         in.serialise(ctx, data[name], other);
+
+        if(staggering)
+            ctx.stagger_stack++;
 
         if constexpr(is_owned)
         {
@@ -346,9 +352,6 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
         }
         else
         {
-            if(!nlohmann_has_name(data, name))
-                return;
-
             in = data[name];
 
             if constexpr(is_owned)
