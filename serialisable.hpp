@@ -31,6 +31,26 @@ namespace ratelimits
         STAGGER,
     };
 }
+size_t get_next_persistent_id();
+
+struct owned
+{
+    size_t _pid = get_next_persistent_id();
+};
+
+template<typename T>
+inline
+bool pid_matches(const T& one, size_t pid)
+{
+    return false;
+}
+
+template<>
+inline
+bool pid_matches<owned>(const owned& one, size_t pid)
+{
+    return one._pid == pid;
+}
 
 #define PID_STRING "_"
 
@@ -86,6 +106,24 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                                     return; \
                                 } \
                             } \
+                            if(ctx.get_by_id) \
+                            { \
+                                if(ctx.get_by_id_found)\
+                                    return;\
+                                \
+                                constexpr bool is_owned = std::is_base_of_v<owned, decltype(x)>; \
+                                \
+                                if constexpr(is_owned) \
+                                {\
+                                    if(pid_matches(x, ctx.get_id)) \
+                                    { \
+                                        ctx.get_by_id_ptr = &this->x; \
+                                        ctx.get_by_id_found = true; \
+                                        return; \
+                                    } \
+                                    find_owned_id(ctx, x); \
+                                } \
+                            }\
                         }while(0)
 
 #define DO_SERIALISE(x) DO_SERIALISE_RATELIMIT(x, 0, ratelimits::NO_STAGGER)
@@ -200,6 +238,11 @@ struct serialise_context
     bool ratelimit = false;
     int stagger_id = 0;
     int stagger_stack = 0;
+
+    bool get_by_id = false;
+    size_t get_id = -1;
+    bool get_by_id_found = false;
+    void* get_by_id_ptr = nullptr; ///well, this is bad!
 };
 
 template<typename T>
@@ -238,12 +281,6 @@ nlohmann::json args_to_nlohmann(T&... args)
 }
 
 global_serialise_info& get_global_serialise_info();
-size_t get_next_persistent_id();
-
-struct owned
-{
-    size_t _pid = get_next_persistent_id();
-};
 
 template<typename T>
 inline
@@ -743,11 +780,6 @@ void do_recurse(serialise_context& ctx, T& in)
 
         in.serialise(ctx, ctx.faux);
     }
-
-    if constexpr(!std::is_base_of_v<serialisable, T>)
-    {
-
-    }
 }
 
 template<typename T>
@@ -774,6 +806,45 @@ void do_recurse(serialise_context& ctx, std::map<T, U>& in)
     for(auto& i : in)
     {
         do_recurse(ctx, i.second);
+    }
+}
+
+template<typename T>
+inline
+void find_owned_id(serialise_context& ctx, T& in)
+{
+    if constexpr(std::is_base_of_v<serialisable, T>)
+    {
+        //func(in);
+
+        in.serialise(ctx, ctx.faux);
+    }
+}
+
+template<typename T>
+inline
+void find_owned_id(serialise_context& ctx, T*& in)
+{
+    find_owned_id(ctx, *in);
+}
+
+template<typename T>
+inline
+void find_owned_id(serialise_context& ctx, std::vector<T>& in)
+{
+    for(auto& i : in)
+    {
+        find_owned_id(ctx, i);
+    }
+}
+
+template<typename T, typename U>
+inline
+void find_owned_id(serialise_context& ctx, std::map<T, U>& in)
+{
+    for(auto& i : in)
+    {
+        find_owned_id(ctx, i.second);
     }
 }
 
