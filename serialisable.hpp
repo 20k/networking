@@ -848,6 +848,25 @@ void find_owned_id(serialise_context& ctx, std::map<T, U>& in)
     }
 }
 
+template<typename T>
+inline
+owned* find_by_id(T& in, size_t id)
+{
+    serialise_context ctx;
+    ctx.get_by_id = true;
+    ctx.get_id = id;
+
+    if(pid_matches(in, id))
+        return &in;
+
+    in.serialise(ctx, ctx.faux);
+
+    if(ctx.get_by_id_found)
+        return (owned*)ctx.get_by_id_ptr;
+
+    return nullptr;
+}
+
 ///so
 ///implement a recurse function that simply executes a function against all datamembers
 ///then, iteratate through structs touching all datamembers, except that if we hit a FUNC_RPC and we're side_1
