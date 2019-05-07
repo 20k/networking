@@ -38,20 +38,6 @@ struct owned
     size_t _pid = get_next_persistent_id();
 };
 
-template<typename T>
-inline
-bool pid_matches(const T& one, size_t pid)
-{
-    return false;
-}
-
-template<>
-inline
-bool pid_matches<owned>(const owned& one, size_t pid)
-{
-    return one._pid == pid;
-}
-
 #define PID_STRING "_"
 
 #define SERIALISE_SIGNATURE() static inline uint32_t id_counter = 0;\
@@ -110,19 +96,7 @@ void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nul
                             { \
                                 if(ctx.get_by_id_found)\
                                     return;\
-                                \
-                                constexpr bool is_owned = std::is_base_of_v<owned, decltype(x)>; \
-                                \
-                                if constexpr(is_owned) \
-                                {\
-                                    if(pid_matches(x, ctx.get_id)) \
-                                    { \
-                                        ctx.get_by_id_ptr = &this->x; \
-                                        ctx.get_by_id_found = true; \
-                                        return; \
-                                    } \
-                                    find_owned_id(ctx, x); \
-                                } \
+                                find_owned_id(ctx, x); \
                             }\
                         }while(0)
 
@@ -813,6 +787,19 @@ template<typename T>
 inline
 void find_owned_id(serialise_context& ctx, T& in)
 {
+    if(ctx.get_by_id_found)
+        return;
+
+    if constexpr(std::is_base_of_v<owned, T>)
+    {
+        if(in._pid == ctx.get_id)
+        {
+            ctx.get_by_id_found = true;
+            ctx.get_by_id_ptr = &in;
+            return;
+        }
+    }
+
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
         //func(in);
@@ -856,10 +843,7 @@ owned* find_by_id(T& in, size_t id)
     ctx.get_by_id = true;
     ctx.get_id = id;
 
-    if(pid_matches(in, id))
-        return &in;
-
-    in.serialise(ctx, ctx.faux);
+    find_owned_id(ctx, in);
 
     if(ctx.get_by_id_found)
         return (owned*)ctx.get_by_id_ptr;
