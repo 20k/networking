@@ -7,21 +7,13 @@
 #include <map>
 #include <iostream>
 
+#include "serialisable_fwd.hpp"
+
 ///its going to be this kind of file
 ///if this makes you sad its not getting any better from here
-template<typename T>
-struct class_extractor;
-
-template<typename C, typename R, typename... Args>
-struct class_extractor<R(C::*)(Args...)>
-{
-    using class_t = C;
-};
 
 template<typename T>
 bool serialisable_is_equal(T* one, T* two);
-
-struct serialise_context;
 
 namespace ratelimits
 {
@@ -31,20 +23,8 @@ namespace ratelimits
         STAGGER,
     };
 }
-size_t get_next_persistent_id();
-
-struct owned
-{
-    size_t _pid = get_next_persistent_id();
-};
 
 #define PID_STRING "_"
-
-#define SERIALISE_SIGNATURE() static inline uint32_t id_counter = 0;\
-std::vector<size_t> last_ratelimit_time; \
-void _internal_helper(){}\
-using self_t = typename class_extractor<decltype(&_internal_helper)>::class_t;\
-void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nullptr)
 
 #define DO_SERIALISE_RATELIMIT(x, rlim, stagger) do{ \
                             static uint32_t my_id##_x = id_counter++; \
