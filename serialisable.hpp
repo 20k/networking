@@ -132,15 +132,6 @@ bool nlohmann_has_name(const nlohmann::json& data, const std::string& name)
 nlohmann::json& nlohmann_index(nlohmann::json& data, const std::string& name);
 nlohmann::json& nlohmann_index(nlohmann::json& data, int name);
 
-struct serialisable
-{
-    //virtual void serialise(serialise_context& ctx, nlohmann::json& data){}
-
-    static size_t time_ms();
-
-    virtual ~serialisable();
-};
-
 struct rpc_data : serialisable
 {
     size_t id = -1;

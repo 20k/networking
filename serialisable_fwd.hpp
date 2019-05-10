@@ -29,4 +29,11 @@ struct owned
     size_t _pid = get_next_persistent_id();
 };
 
+struct serialisable
+{
+    static size_t time_ms();
+
+    virtual ~serialisable();
+};
+
 #endif // SERIALISABLE_FWD_HPP_INCLUDED
