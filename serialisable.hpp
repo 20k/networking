@@ -31,7 +31,7 @@ namespace ratelimits
                             static std::string s##_x = std::to_string(my_id##_x);\
                             if(ctx.serialisation) \
                             { \
-                                decltype(x)* fptr = nullptr;\
+                                decltype(this->x)* fptr = nullptr;\
                                 \
                                 if(other) \
                                     fptr = &other->x; \
@@ -52,14 +52,14 @@ namespace ratelimits
                                     ctx.stagger_stack++; \
                                 \
                                 if(!skip && (other == nullptr || !ctx.encode || !serialisable_is_equal_cached(ctx, &this->x, fptr))) \
-                                    do_serialise(ctx, data, x, s##_x, fptr); \
+                                    do_serialise(ctx, data, this->x, s##_x, fptr); \
                                 \
                                 if(stagger == ratelimits::STAGGER) \
                                     ctx.stagger_stack--; \
                             } \
                             if(ctx.exec_rpcs) \
                             { \
-                                do_recurse(ctx, x); \
+                                do_recurse(ctx, this->x); \
                             } \
                             if(ctx.check_eq) \
                             { \
@@ -76,7 +76,7 @@ namespace ratelimits
                             { \
                                 if(ctx.get_by_id_found)\
                                     return;\
-                                find_owned_id(ctx, x); \
+                                find_owned_id(ctx, this->x); \
                             }\
                         }while(0)
 
