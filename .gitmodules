@@ -1,0 +1,3 @@
+[submodule "deps/ndb"]
+	path = deps/ndb
+	url = https://github.com/20k/ndb
