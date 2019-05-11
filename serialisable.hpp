@@ -40,6 +40,7 @@ namespace serialise_mode
                             static uint32_t my_id##_x = id_counter++; \
                             static std::string s##_x = std::to_string(my_id##_x);\
                             const std::string& my_id = ctx.mode == serialise_mode::NETWORK ? s##_x : #x;\
+                            assert(ctx.mode == serialise_mode::NETWORK || ctx.mode == serialise_mode::DISK);\
                             if(ctx.serialisation) \
                             { \
                                 decltype(this->x)* fptr = nullptr;\
