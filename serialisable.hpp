@@ -1199,7 +1199,7 @@ void serialise_to_db(const std::string& key, T& in, db_read_write& tx)
 
     if(vec.size() > 0)
     {
-        std::string_view view(&vec[0], vec.size());
+        std::string_view view((const char*)&vec[0], vec.size());
 
         tx.write(key, view);
     }
