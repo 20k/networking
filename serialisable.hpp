@@ -25,11 +25,21 @@ namespace ratelimits
     };
 }
 
+namespace serialise_mode
+{
+    enum type
+    {
+        NETWORK,
+        DISK,
+    };
+}
+
 #define PID_STRING "_"
 
 #define DO_SERIALISE_RATELIMIT(x, rlim, stagger) do{ \
                             static uint32_t my_id##_x = id_counter++; \
                             static std::string s##_x = std::to_string(my_id##_x);\
+                            const std::string& my_id = ctx.mode == serialise_mode::NETWORK ? s##_x : #x;\
                             if(ctx.serialisation) \
                             { \
                                 decltype(this->x)* fptr = nullptr;\
@@ -53,7 +63,7 @@ namespace ratelimits
                                     ctx.stagger_stack++; \
                                 \
                                 if(!skip && (other == nullptr || !ctx.encode || !serialisable_is_equal_cached(ctx, &this->x, fptr))) \
-                                    do_serialise(ctx, data, this->x, s##_x, fptr); \
+                                    do_serialise(ctx, data, this->x, my_id, fptr); \
                                 \
                                 if(stagger == ratelimits::STAGGER) \
                                     ctx.stagger_stack--; \
@@ -166,6 +176,8 @@ struct serialise_context
 {
     nlohmann::json data;
     nlohmann::json faux; ///fake nlohmann
+
+    serialise_mode::type mode = serialise_mode::NETWORK;
 
     bool encode = false;
     bool recurse = false;
@@ -832,11 +844,12 @@ owned* find_by_id(T& in, size_t id)
 
 template<typename T>
 inline
-nlohmann::json serialise(T& in)
+nlohmann::json serialise(T& in, serialise_mode::type mode = serialise_mode::NETWORK)
 {
     serialise_context ctx;
     ctx.encode = true;
     ctx.serialisation = true;
+    ctx.mode = mode;
 
     nlohmann::json data;
 
@@ -933,11 +946,12 @@ T deserialise(nlohmann::json& in)
 
 template<typename T>
 inline
-void deserialise(nlohmann::json& in, T& dat)
+void deserialise(nlohmann::json& in, T& dat, serialise_mode::type mode = serialise_mode::NETWORK)
 {
     serialise_context ctx;
     ctx.encode = false;
     ctx.serialisation = true;
+    ctx.mode = mode;
 
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
@@ -1178,7 +1192,7 @@ template<typename T>
 inline
 void serialise_to_db(const std::string& key, T& in, db_read_write& tx)
 {
-    nlohmann::json data = serialise(in);
+    nlohmann::json data = serialise(in, serialise_mode::DISK);
 
     auto vec = nlohmann::json::to_cbor(data);
 
@@ -1205,7 +1219,7 @@ bool serialise_from_db(const std::string& key, T& in, db_read& tx)
 
     nlohmann::json js = nlohmann::json::from_cbor(data.value().data);
 
-    deserialise(js, in);
+    deserialise(js, in, serialise_mode::DISK);
 
     return true;
 }
