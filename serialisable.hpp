@@ -1210,4 +1210,27 @@ bool serialise_from_db(const std::string& key, T& in, db_read& tx)
     return true;
 }
 
+template<typename T>
+struct db_storable
+{
+    std::string key;
+
+    void save(db_read_write& tx)
+    {
+        serialise_to_db(key, static_cast<T&>(*this), tx);
+    }
+
+    bool load(const std::string& _key, db_read& tx)
+    {
+        key = _key;
+
+        return serialise_from_db(key, static_cast<T&>(*this), tx);
+    }
+
+    void del(db_read_write& tx)
+    {
+        tx.del(key);
+    }
+};
+
 #endif // SERIALISABLE_HPP_INCLUDED
