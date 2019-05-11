@@ -205,7 +205,7 @@ struct serialise_context
 };
 
 template<typename T>
-nlohmann::json serialise(T& in);
+nlohmann::json serialise(T& in, serialise_mode::type mode = serialise_mode::NETWORK);
 
 inline
 void args_to_nlohmann_1(nlohmann::json& in, serialise_context& ctx, int& idx)
@@ -845,7 +845,7 @@ owned* find_by_id(T& in, size_t id)
 
 template<typename T>
 inline
-nlohmann::json serialise(T& in, serialise_mode::type mode = serialise_mode::NETWORK)
+nlohmann::json serialise(T& in, serialise_mode::type mode)
 {
     serialise_context ctx;
     ctx.encode = true;
