@@ -98,6 +98,28 @@ private:
     bool is_connected = false;
 };
 
+namespace network_mode
+{
+    enum type
+    {
+        AUTH,
+        DATA,
+        COUNT
+    };
+}
+
+struct network_protocol : serialisable
+{
+    network_mode::type type = network_mode::COUNT;
+    nlohmann::json data;
+
+    SERIALISE_SIGNATURE()
+    {
+        DO_SERIALISE(type);
+        DO_SERIALISE(data);
+    }
+};
+
 ///I am a variable that lives on the server
 ///do not accept client input, aka don't decode
 template<typename T>
