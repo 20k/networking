@@ -39,7 +39,7 @@ namespace serialise_mode
 #define DO_SERIALISE_RATELIMIT(x, rlim, stagger) do{ \
                             static uint32_t my_id##_x = id_counter++; \
                             static std::string s##_x = std::to_string(my_id##_x);\
-                            const std::string& my_id = ctx.mode == serialise_mode::NETWORK ? s##_x : #x;\
+                            const std::string& my_name = ctx.mode == serialise_mode::NETWORK ? s##_x : #x;\
                             assert(ctx.mode == serialise_mode::NETWORK || ctx.mode == serialise_mode::DISK);\
                             if(ctx.serialisation) \
                             { \
@@ -64,7 +64,7 @@ namespace serialise_mode
                                     ctx.stagger_stack++; \
                                 \
                                 if(!skip && (other == nullptr || !ctx.encode || !serialisable_is_equal_cached(ctx, &this->x, fptr))) \
-                                    do_serialise(ctx, data, this->x, my_id, fptr); \
+                                    do_serialise(ctx, data, this->x, my_name, fptr); \
                                 \
                                 if(stagger == ratelimits::STAGGER) \
                                     ctx.stagger_stack--; \
