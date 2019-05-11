@@ -102,7 +102,7 @@ namespace network_mode
 {
     enum type
     {
-        AUTH,
+        STEAM_AUTH,
         DATA,
         COUNT
     };
