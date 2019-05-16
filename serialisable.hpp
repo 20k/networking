@@ -1225,6 +1225,8 @@ bool serialise_from_db(const std::string& key, T& in, db_read& tx)
     return true;
 }
 
+///keep db dirty state so we can defer
+
 template<typename T>
 struct db_storable
 {
