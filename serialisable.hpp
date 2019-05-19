@@ -51,7 +51,7 @@ namespace serialise_mode
                                 last_ratelimit_time.resize(id_counter); \
                                 \
                                 bool skip = false; \
-                                if(ctx.ratelimit && ctx.encode && rlim > 0) \
+                                if(ctx.mode == serialise_mode::NETWORK && ctx.ratelimit && ctx.encode && rlim > 0) \
                                 { \
                                     size_t current_time = time_ms(); \
                                     \
