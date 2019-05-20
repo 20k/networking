@@ -26,6 +26,15 @@ namespace ratelimits
     };
 }
 
+namespace interpolation_mode
+{
+    enum type
+    {
+        NONE,
+        SMOOTH,
+    };
+}
+
 namespace serialise_mode
 {
     enum type
@@ -37,7 +46,7 @@ namespace serialise_mode
 
 #define PID_STRING "_"
 
-#define DO_SERIALISE_RATELIMIT(x, rlim, stagger) do{ \
+#define DO_SERIALISE_BASE(x, rlim, stagger) do{ \
                             static uint32_t my_id##_x = id_counter++; \
                             static std::string s##_x = std::to_string(my_id##_x);\
                             const std::string& my_name = ctx.mode == serialise_mode::NETWORK ? s##_x : #x;\
@@ -91,9 +100,30 @@ namespace serialise_mode
                                     return;\
                                 find_owned_id(ctx, this->x); \
                             }\
-                        }while(0)
+                            \
+                            if(ctx.update_interpolation)\
+                               do_interpolation(ctx, this->x);\
+                            \
+                        }while(0);
 
-#define DO_SERIALISE(x) DO_SERIALISE_RATELIMIT(x, 0, ratelimits::NO_STAGGER)
+#define DO_SERIALISE_INTERPOLATE_IMPL(x) do{ \
+                        static uint32_t my_id##_x = id_counter2++; \
+                        static std::string s##_x = std::to_string(my_id##_x);\
+                        if(ctx.update_interpolation)\
+                        {\
+                            last_vals.resize(id_counter2);\
+                            this->x = last_vals[my_id##_x].get_update<decltype(this->x)>();\
+                        }\
+                        if(ctx.serialisation && !ctx.encode)\
+                            last_vals[my_id##_x].add_val(this->x, serialisable_time_ms());\
+                        }while(0);
+
+#define DO_SERIALISE(x) DO_SERIALISE_BASE(x, 0, ratelimits::NO_STAGGER)
+
+#define DO_SERIALISE_SMOOTH(x)    DO_SERIALISE_BASE(x, 0, ratelimits::NO_STAGGER) \
+                                  DO_SERIALISE_INTERPOLATE_IMPL(x)
+
+#define DO_SERIALISE_RATELIMIT(x, y, z) DO_SERIALISE_BASE(x, y, z)
 
 #define DO_RPC(x) do{ \
                         if(ctx.exec_rpcs) \
@@ -203,6 +233,8 @@ struct serialise_context
     size_t get_id = -1;
     bool get_by_id_found = false;
     void* get_by_id_ptr = nullptr; ///well, this is bad!
+
+    bool update_interpolation = false;
 };
 
 template<typename T>
@@ -771,6 +803,45 @@ void do_recurse(serialise_context& ctx, std::map<T, U>& in)
 
 template<typename T>
 inline
+void do_interpolation(serialise_context& ctx, T& in)
+{
+    if constexpr(std::is_base_of_v<serialisable, T>)
+    {
+        //func(in);
+
+        in.serialise(ctx, ctx.faux);
+    }
+}
+
+template<typename T>
+inline
+void do_interpolation(serialise_context& ctx, T*& in)
+{
+    do_interpolation(ctx, *in);
+}
+
+template<typename T>
+inline
+void do_interpolation(serialise_context& ctx, std::vector<T>& in)
+{
+    for(auto& i : in)
+    {
+        do_interpolation(ctx, i);
+    }
+}
+
+template<typename T, typename U>
+inline
+void do_interpolation(serialise_context& ctx, std::map<T, U>& in)
+{
+    for(auto& i : in)
+    {
+        do_interpolation(ctx, i.second);
+    }
+}
+
+template<typename T>
+inline
 void find_owned_id(serialise_context& ctx, T& in)
 {
     if(ctx.get_by_id_found)
@@ -843,6 +914,19 @@ owned* find_by_id(T& in, size_t id)
 ///write args to serialise context
 ///if we're side_2, execute function with those args
 ///will probably have to make weird rpc syntax or something, or an rpc function
+
+template<typename T>
+inline
+void update_interpolated_variables(T& in)
+{
+    serialise_context ctx;
+    ctx.update_interpolation = true;
+
+    if constexpr(std::is_base_of_v<serialisable, T>)
+    {
+        in.serialise(ctx, ctx.faux);
+    }
+}
 
 template<typename T>
 inline

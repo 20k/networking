@@ -224,7 +224,7 @@ struct ts_vector
         for(int i=0; i < (int)values.size(); i++)
         {
             if(i == (int)values.size() - 1)
-                return values[i];
+                return std::any_cast<T>(values[i]);
 
             int next = i + 1;
 
@@ -238,11 +238,11 @@ struct ts_vector
 
                 double fraction = (double)offset / diff;
 
-                return (T)values[i] * (1. - fraction) + (T)values[next] * fraction;
+                return std::any_cast<T>(values[i]) * (1. - fraction) + std::any_cast<T>(values[next]) * fraction;
             }
         }
 
-        return values[0];
+        return std::any_cast<T>(values[0]);
     }
 };
 

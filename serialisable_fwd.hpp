@@ -8,6 +8,7 @@
 #define SERIALISE_SIGNATURE() \
 std::vector<ts_vector> last_vals;\
 static inline uint32_t id_counter = 0;\
+static inline uint32_t id_counter2 = 0;\
 std::vector<size_t> last_ratelimit_time; \
 void _internal_helper(){}\
 using self_t = typename class_extractor<decltype(&_internal_helper)>::class_t;\
