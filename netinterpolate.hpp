@@ -214,7 +214,7 @@ struct ts_vector
     T get_update()
     {
         ///200 should be server ping estimate
-        size_t epoch_time_ms = serialisable_time_ms() - 200;
+        size_t epoch_time_ms = serialisable_time_ms() - 1000;
 
         if(values.size() == 0)
             return T();

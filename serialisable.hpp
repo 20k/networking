@@ -32,6 +32,7 @@ namespace interpolation_mode
     {
         NONE,
         SMOOTH,
+        ONLY_IF_STAGGERED
     };
 }
 
@@ -106,22 +107,24 @@ namespace serialise_mode
                             \
                         }while(0);
 
-#define DO_SERIALISE_INTERPOLATE_IMPL(x) do{ \
-                        static uint32_t my_id##_x = id_counter2++; \
-                        static std::string s##_x = std::to_string(my_id##_x);\
-                        last_vals.resize(id_counter2);\
-                        if(ctx.update_interpolation)\
-                        {\
-                            this->x = last_vals[my_id##_x].get_update<decltype(this->x)>();\
-                        }\
-                        if(ctx.serialisation && !ctx.encode)\
-                            last_vals[my_id##_x].add_val(this->x, serialisable_time_ms());\
+#define DO_SERIALISE_INTERPOLATE_IMPL(x, mode) do{ \
+                            if(mode == interpolation_mode::ONLY_IF_STAGGERED && ctx.stagger_stack == 0)\
+                                break;\
+                            static uint32_t my_id##_x = id_counter2++; \
+                            static std::string s##_x = std::to_string(my_id##_x);\
+                            last_vals.resize(id_counter2);\
+                            if(ctx.update_interpolation)\
+                            {\
+                                this->x = last_vals[my_id##_x].get_update<decltype(this->x)>();\
+                            }\
+                            if(ctx.serialisation && !ctx.encode)\
+                                last_vals[my_id##_x].add_val(this->x, serialisable_time_ms());\
                         }while(0);
 
 #define DO_SERIALISE(x) DO_SERIALISE_BASE(x, 0, ratelimits::NO_STAGGER)
 
-#define DO_SERIALISE_SMOOTH(x)    DO_SERIALISE_BASE(x, 0, ratelimits::NO_STAGGER) \
-                                  DO_SERIALISE_INTERPOLATE_IMPL(x)
+#define DO_SERIALISE_SMOOTH(x, y)    DO_SERIALISE_BASE(x, 0, ratelimits::NO_STAGGER) \
+                                  DO_SERIALISE_INTERPOLATE_IMPL(x, y)
 
 #define DO_SERIALISE_RATELIMIT(x, y, z) DO_SERIALISE_BASE(x, y, z)
 
