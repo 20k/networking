@@ -1,6 +1,7 @@
 #include "serialisable.hpp"
 #include <chrono>
 #include <fstream>
+#include "netinterpolate.hpp"
 
 #define mmix(h,k) { k *= m; k ^= k >> r; k *= m; h *= m; h ^= k; }
 
@@ -121,6 +122,11 @@ void global_serialise_info::serialise(serialise_context& ctx, nlohmann::json& da
 }
 
 size_t serialisable::time_ms()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+size_t serialisable_time_ms()
 {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }

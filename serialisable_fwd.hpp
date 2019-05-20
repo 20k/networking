@@ -5,7 +5,9 @@
 #include <vector>
 #include <nlohmann/json.hpp>
 
-#define SERIALISE_SIGNATURE() static inline uint32_t id_counter = 0;\
+#define SERIALISE_SIGNATURE() \
+std::vector<ts_vector> last_vals;\
+static inline uint32_t id_counter = 0;\
 std::vector<size_t> last_ratelimit_time; \
 void _internal_helper(){}\
 using self_t = typename class_extractor<decltype(&_internal_helper)>::class_t;\
@@ -35,5 +37,7 @@ struct serialisable
 
     virtual ~serialisable();
 };
+
+struct ts_vector;
 
 #endif // SERIALISABLE_FWD_HPP_INCLUDED

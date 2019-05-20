@@ -9,6 +9,7 @@
 
 #include "serialisable_fwd.hpp"
 #include <ndb/db_storage.hpp>
+#include "netinterpolate.hpp"
 
 ///its going to be this kind of file
 ///if this makes you sad its not getting any better from here
