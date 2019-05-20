@@ -1342,4 +1342,6 @@ struct db_storable
     }
 };
 
+#define DB_PERSIST_ID 2
+
 #endif // SERIALISABLE_HPP_INCLUDED

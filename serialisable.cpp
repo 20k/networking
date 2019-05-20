@@ -232,11 +232,23 @@ global_serialise_info& get_global_serialise_info()
     return inf;
 }
 
-size_t get_next_persistent_id()
+size_t& get_raw_id_impl()
 {
     thread_local static size_t gpid = 0;
 
+    return gpid;
+}
+
+size_t get_next_persistent_id()
+{
+    size_t& gpid = get_raw_id_impl();
+
     return gpid++;
+}
+
+void set_next_persistent_id(size_t in)
+{
+    get_raw_id_impl() = in;
 }
 
 void save_to_file(const std::string& fname, const nlohmann::json& data)

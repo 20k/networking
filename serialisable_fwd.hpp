@@ -25,7 +25,9 @@ struct class_extractor<R(C::*)(Args...)>
 
 struct serialise_context;
 
+size_t& get_raw_id_impl();
 size_t get_next_persistent_id();
+void set_next_persistent_id(size_t in);
 
 struct owned
 {
