@@ -102,29 +102,33 @@ namespace serialise_mode
                                 find_owned_id(ctx, this->x); \
                             }\
                             \
-                            if(ctx.update_interpolation)\
-                               do_interpolation(ctx, this->x);\
+                            if(ctx.update_interpolation){\
+                                if(stagger == ratelimits::STAGGER) \
+                                    ctx.stagger_stack++;\
+                                do_interpolation(ctx, this->x);\
+                                if(stagger == ratelimits::STAGGER) \
+                                    ctx.stagger_stack--;\
+                            }\
                             \
                         }while(0);
 
 #define DO_SERIALISE_INTERPOLATE_IMPL(x, mode) do{ \
-                            if(mode == interpolation_mode::ONLY_IF_STAGGERED && ctx.stagger_stack == 0)\
-                                break;\
                             static uint32_t my_id##_x = id_counter2++; \
                             static std::string s##_x = std::to_string(my_id##_x);\
                             last_vals.resize(id_counter2);\
-                            if(ctx.update_interpolation)\
+                            if((mode == interpolation_mode::ONLY_IF_STAGGERED && ctx.stagger_stack > 0) || mode == interpolation_mode::SMOOTH)\
                             {\
-                                this->x = last_vals[my_id##_x].get_update<decltype(this->x)>();\
+                                if(ctx.update_interpolation)\
+                                    this->x = last_vals[my_id##_x].get_update<decltype(this->x)>();\
+                                if(ctx.serialisation && !ctx.encode)\
+                                    last_vals[my_id##_x].add_val(this->x, serialisable_time_ms());\
                             }\
-                            if(ctx.serialisation && !ctx.encode)\
-                                last_vals[my_id##_x].add_val(this->x, serialisable_time_ms());\
                         }while(0);
 
 #define DO_SERIALISE(x) DO_SERIALISE_BASE(x, 0, ratelimits::NO_STAGGER)
 
-#define DO_SERIALISE_SMOOTH(x, y)    DO_SERIALISE_BASE(x, 0, ratelimits::NO_STAGGER) \
-                                  DO_SERIALISE_INTERPOLATE_IMPL(x, y)
+#define DO_SERIALISE_SMOOTH(x, y)   DO_SERIALISE_BASE(x, 0, ratelimits::NO_STAGGER) \
+                                    DO_SERIALISE_INTERPOLATE_IMPL(x, y)
 
 #define DO_SERIALISE_RATELIMIT(x, y, z) DO_SERIALISE_BASE(x, y, z)
 
