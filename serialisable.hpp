@@ -105,7 +105,7 @@ namespace serialise_mode
                             if(ctx.update_interpolation){\
                                 if(stagger == ratelimits::STAGGER) \
                                     ctx.stagger_stack++;\
-                                do_interpolation(ctx, this->x);\
+                                do_recurse(ctx, this->x);\
                                 if(stagger == ratelimits::STAGGER) \
                                     ctx.stagger_stack--;\
                             }\
@@ -805,45 +805,6 @@ void do_recurse(serialise_context& ctx, std::map<T, U>& in)
     for(auto& i : in)
     {
         do_recurse(ctx, i.second);
-    }
-}
-
-template<typename T>
-inline
-void do_interpolation(serialise_context& ctx, T& in)
-{
-    if constexpr(std::is_base_of_v<serialisable, T>)
-    {
-        //func(in);
-
-        in.serialise(ctx, ctx.faux);
-    }
-}
-
-template<typename T>
-inline
-void do_interpolation(serialise_context& ctx, T*& in)
-{
-    do_interpolation(ctx, *in);
-}
-
-template<typename T>
-inline
-void do_interpolation(serialise_context& ctx, std::vector<T>& in)
-{
-    for(auto& i : in)
-    {
-        do_interpolation(ctx, i);
-    }
-}
-
-template<typename T, typename U>
-inline
-void do_interpolation(serialise_context& ctx, std::map<T, U>& in)
-{
-    for(auto& i : in)
-    {
-        do_interpolation(ctx, i.second);
     }
 }
 
