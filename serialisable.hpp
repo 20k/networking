@@ -239,7 +239,7 @@ struct serialise_context
     bool get_by_id = false;
     size_t get_id = -1;
     bool get_by_id_found = false;
-    void* get_by_id_ptr = nullptr; ///well, this is bad!
+    owned* get_by_id_ptr = nullptr; ///well, this is bad!
 
     bool update_interpolation = false;
 };

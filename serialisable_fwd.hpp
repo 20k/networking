@@ -32,6 +32,8 @@ void set_next_persistent_id(size_t in);
 struct owned
 {
     size_t _pid = get_next_persistent_id();
+
+    virtual ~owned() = default;
 };
 
 struct serialisable
