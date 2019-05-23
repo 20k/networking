@@ -29,6 +29,10 @@ size_t& get_raw_id_impl();
 size_t get_next_persistent_id();
 void set_next_persistent_id(size_t in);
 
+using pid_callback_t = void (*)(size_t current, size_t requested, void* udata);
+void set_pid_callback(pid_callback_t callback);
+void set_pid_udata(void* udata);
+
 struct owned
 {
     size_t _pid = get_next_persistent_id();

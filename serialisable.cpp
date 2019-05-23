@@ -232,6 +232,42 @@ global_serialise_info& get_global_serialise_info()
     return inf;
 }
 
+void default_callback(size_t current, size_t requested, void* udata)
+{
+
+}
+
+pid_callback_t& get_current_callback()
+{
+    thread_local static pid_callback_t call = default_callback;
+
+    return call;
+}
+
+void set_pid_callback(pid_callback_t callback)
+{
+    get_current_callback() = callback;
+}
+
+void*& get_pid_udata()
+{
+    thread_local static void* udata = nullptr;
+
+    return udata;
+}
+
+void set_pid_udata(void* udata)
+{
+    get_pid_udata() = udata;
+}
+
+size_t& get_id_cap()
+{
+    thread_local static size_t gid = 0;
+
+    return gid;
+}
+
 size_t& get_raw_id_impl()
 {
     thread_local static size_t gpid = 0;
@@ -243,12 +279,21 @@ size_t get_next_persistent_id()
 {
     size_t& gpid = get_raw_id_impl();
 
+    assert(gpid <= get_id_cap());
+
+    if(gpid == get_id_cap())
+    {
+        get_current_callback()(gpid, 1024, get_pid_udata());
+        get_id_cap() += 1024;
+    }
+
     return gpid++;
 }
 
 void set_next_persistent_id(size_t in)
 {
     get_raw_id_impl() = in;
+    get_id_cap() = in;
 }
 
 void save_to_file(const std::string& fname, const nlohmann::json& data)
