@@ -223,6 +223,18 @@ void serialise_tests()
     assert(mdata.test_owned.size() == 2);
     assert(mdata.test_owned[0].my_float == 2);
     assert(mdata.test_owned[1].my_float == 53);
+
+
+    {
+        data_1 test_data;
+        test_data.my_float = NAN;
+
+        auto dat = serialise(test_data);
+
+        data_1 receive = deserialise<data_1>(dat);
+
+        assert(receive.my_float == 0);
+    }
 }
 
 global_serialise_info& get_global_serialise_info()

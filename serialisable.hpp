@@ -297,6 +297,33 @@ std::shared_ptr<T>& get_tls_ptr(size_t id)
     return ptr;
 }
 
+template<typename T>
+inline
+void make_finite(T& in)
+{
+
+}
+
+template<>
+inline
+void make_finite(float& in)
+{
+    if(!isfinite(in))
+    {
+        in = 0;
+    }
+}
+
+template<>
+inline
+void make_finite(double& in)
+{
+    if(!isfinite(in))
+    {
+        in = 0;
+    }
+}
+
 template<int N, typename T, typename I>
 inline
 void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, const I& name, vec<N, T>* other)
@@ -319,6 +346,8 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, c
         for(int i=0; i < N; i++)
         {
             in.v[i] = data[name][i];
+
+            make_finite(in.v[i]);
         }
     }
 }
@@ -389,6 +418,8 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
         else
         {
             in = data[name];
+
+            make_finite(in);
 
             if constexpr(is_owned)
             {
