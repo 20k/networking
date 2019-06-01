@@ -758,6 +758,68 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& 
     T* fptr = nullptr;
     U* uptr = nullptr;
 
+    std::vector<T>* vfptr = nullptr;
+    std::vector<U>* vuptr = nullptr;
+
+    std::vector<T> keys;
+    std::vector<U> vals;
+
+    for(auto& i : in)
+    {
+        keys.push_back(i.first);
+        vals.push_back(i.second);
+    }
+
+    std::vector<T> okeys;
+    std::vector<U> ovals;
+
+    if(other)
+    {
+        for(auto& i : *other)
+        {
+            okeys.push_back(i.first);
+            ovals.push_back(i.second);
+        }
+    }
+
+    if(ctx.encode)
+    {
+        if(other)
+        {
+            do_serialise(ctx, data[name], keys, "f", &okeys);
+            do_serialise(ctx, data[name], vals, "s", &ovals);
+        }
+        else
+        {
+            do_serialise(ctx, data[name], keys, "f", vfptr);
+            do_serialise(ctx, data[name], vals, "s", vuptr);
+        }
+    }
+    else
+    {
+        if(other)
+        {
+            do_serialise(ctx, data[name], keys, "f", &okeys);
+            do_serialise(ctx, data[name], vals, "s", &ovals);
+        }
+        else
+        {
+            do_serialise(ctx, data[name], keys, "f", vfptr);
+            do_serialise(ctx, data[name], vals, "s", vuptr);
+        }
+
+        if(keys.size() != vals.size())
+            throw std::runtime_error("Bad decode in map");
+
+        in.clear();
+
+        for(int i=0; i < (int)keys.size(); i++)
+        {
+            in[keys[i]] = vals[i];
+        }
+    }
+
+    #if 0
     if(ctx.encode)
     {
         //if(serialisable_is_equal(&in, other))
@@ -767,10 +829,42 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& 
 
         for(auto& i : in)
         {
+            /*bool found = false;
+
             T cstr = i.first;
 
             do_serialise(ctx, data[name][idx], cstr, "f", fptr);
-            do_serialise(ctx, data[name][idx], i.second, "s", uptr);
+
+            if(other)
+            {
+                auto them_it = other->find(i.first);
+
+                if(them_it != other->end())
+                {
+                    do_serialise(ctx, data[name][idx], i.second, "s", &them_it->second);
+
+                    found = true;
+                }
+            }
+
+            if(!found)
+                do_serialise(ctx, data[name][idx], i.second, "s", uptr);*/
+
+            bool found = false;
+
+            if(other)
+            {
+                auto them_it = other->find(i.first);
+
+                if(them_it != other->end())
+                {
+                    do_serialise(ctx, data[name], i.second, i.first, &them_it->second);
+                    found = true;
+                }
+            }
+
+            if(!found)
+                do_serialise(ctx, data[name], i.second, i.first, uptr);
 
             idx++;
         }
@@ -780,9 +874,63 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& 
         if(!nlohmann_has_name(data, name))
             return;
 
+        if(other)
+        {
+            for(auto it = in.begin(); it != in.end();)
+            {
+                if(!nlohmann_has_name(data[name], it->first))
+                {
+                    it = in.erase(it);
+                }
+                else
+                {
+                    T fst = it->first;
+
+                    auto o_it = other->find(fst);
+
+                    if(o_it != other->end())
+                        do_serialise(ctx, data[name], it->second, fst, &o_it->second);
+                    else
+                        do_serialise(ctx, data[name], it->second, fst, uptr);
+
+                    it++;
+                }
+            }
+
+            for(auto& i : data[name].items())
+            {
+                U second = U();
+                T first = i.key();
+
+                if(in.find(first) != in.end())
+                    continue;
+
+                do_serialise(ctx, data[name], second, first, uptr);
+
+                in[i.first] = second;
+            }
+        }
+        else
+        {
+            in.clear();
+
+            for(auto& i : data[name].items())
+            {
+                U second = U();
+                T first = i.key();
+
+                do_serialise(ctx, data[name], second, first, uptr);
+
+                in[first] = second;
+            }
+        }
+
+        #if 0
         int idx = 0;
 
-        in.clear();
+        //in.clear();
+
+        std::map<T, U> nmap;
 
         for(auto& i : data[name].items())
         {
@@ -796,15 +944,53 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& 
             }
 
             do_serialise(ctx, data[name][idx], first, "f", fptr);
-            do_serialise(ctx, data[name][idx], second, "s", uptr);
 
-            in[first] = second;
+            if(in.find(first) != in.end())
+            {
+                //nmap[first] = in.find(first)->second;
+            }
+
+            bool found = false;
+
+            if(other)
+            {
+                auto them_it = other->find(first);
+
+                auto my_it = nmap.find(first);
+
+                if(them_it != other->end() && my_it != nmap.end())
+                {
+                    do_serialise(ctx, data[name][idx], my_it->second, "s", &them_it->second);
+                    found = true;
+                }
+            }
+
+            if(!found)
+            {
+                do_serialise(ctx, data[name][idx], second, "s", uptr);
+
+                nmap[first] = second;
+            }
+
+            //used[first] = true;
 
             idx++;
 
             (void)i;
         }
+
+        in = nmap;
+        #endif // 0
+
+        /*for(auto it = in.begin(); it != in.end();)
+        {
+            if(!used[it->first])
+                it = in.erase(it);
+            else
+                it++;
+        }*/
     }
+    #endif // 0
 }
 
 template<typename T>
