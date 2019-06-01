@@ -789,6 +789,12 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& 
             T first = T();
             U second = U();
 
+            if(!nlohmann_has_name(data[name], idx))
+            {
+                idx++;
+                continue;
+            }
+
             do_serialise(ctx, data[name][idx], first, "f", fptr);
             do_serialise(ctx, data[name][idx], second, "s", uptr);
 
