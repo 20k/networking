@@ -756,6 +756,7 @@ inline
 void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& in, const I& name, std::map<T, U>* other)
 {
     T* fptr = nullptr;
+    U* uptr = nullptr;
 
     if(ctx.encode)
     {
@@ -769,7 +770,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& 
             T cstr = i.first;
 
             do_serialise(ctx, data[name][idx], cstr, "f", fptr);
-            do_serialise(ctx, data[name][idx], i.second, "s", fptr);
+            do_serialise(ctx, data[name][idx], i.second, "s", uptr);
 
             idx++;
         }
@@ -789,7 +790,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& 
             U second = U();
 
             do_serialise(ctx, data[name][idx], first, "f", fptr);
-            do_serialise(ctx, data[name][idx], second, "s", fptr);
+            do_serialise(ctx, data[name][idx], second, "s", uptr);
 
             in[first] = second;
 
@@ -1201,7 +1202,7 @@ bool serialisable_is_eq_impl(serialise_context& ctx, std::map<T, U>& one, std::m
 
     for(auto& i : one)
     {
-        if(two.find(i) == two.end())
+        if(two.find(i.first) == two.end())
             return false;
 
         if(!serialisable_is_eq_impl(ctx, i.second, two[i.first]))
