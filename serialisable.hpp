@@ -755,8 +755,8 @@ template<typename T, typename U, typename I>
 inline
 void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& in, const I& name, std::map<T, U>* other)
 {
-    T* fptr = nullptr;
-    U* uptr = nullptr;
+    //T* fptr = nullptr;
+    //U* uptr = nullptr;
 
     std::vector<T>* vfptr = nullptr;
     std::vector<U>* vuptr = nullptr;
