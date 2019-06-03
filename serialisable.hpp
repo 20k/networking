@@ -5,7 +5,6 @@
 #include <type_traits>
 #include <vec/vec.hpp>
 #include <map>
-#include <iostream>
 
 #include "serialisable_fwd.hpp"
 #include <ndb/db_storage.hpp>
