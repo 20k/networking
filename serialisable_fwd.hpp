@@ -14,6 +14,8 @@ void _internal_helper(){}\
 using self_t = typename class_extractor<decltype(&_internal_helper)>::class_t;\
 void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nullptr)
 
+#define SERIALISE_BODY(x) void x::serialise(serialise_context& ctx, nlohmann::json& data, self_t* other)
+
 template<typename T>
 struct class_extractor;
 
