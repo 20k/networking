@@ -33,6 +33,8 @@ struct connection
 
     std::vector<uint64_t> clients();
 
+    size_t last_read_from = -1;
+
     bool has_read();
     write_data read_from();
     //std::string read();
