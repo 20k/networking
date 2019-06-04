@@ -402,11 +402,10 @@ write_data connection::read_from()
 
     std::lock_guard guard(mut);
 
-    ///check through queue, but don't return a read from the last
-    ///person to send one
+    ///check through queue, basically round robins people based on ids
     for(auto& i : fine_read_queue)
     {
-        if(i.first == last_read_from)
+        if(i.first <= last_read_from)
             continue;
 
         std::lock_guard g2(fine_read_lock[i.first]);
@@ -419,6 +418,7 @@ write_data connection::read_from()
     }
 
     ///nobody suitable available, check if we have a read available from anyone at all
+    ///std::map is sorted so we'll read from lowest id person in the queue
     for(auto& i : fine_read_queue)
     {
         std::lock_guard g2(fine_read_lock[i.first]);
