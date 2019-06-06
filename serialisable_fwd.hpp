@@ -44,9 +44,14 @@ using pid_callback_t = void (*)(size_t current, size_t requested, void* udata);
 void set_pid_callback(pid_callback_t callback);
 void set_pid_udata(void* udata);
 
+struct temporary_owned{};
+
 struct owned
 {
-    size_t _pid = get_next_persistent_id();
+    size_t _pid = -1;
+
+    owned(){_pid = get_next_persistent_id();}
+    owned(temporary_owned tmp){}
 
     virtual ~owned() = default;
 };
