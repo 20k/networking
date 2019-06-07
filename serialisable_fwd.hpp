@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <vector>
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 #define SERIALISE_SIGNATURE() \
     std::vector<ts_vector> last_vals;\
