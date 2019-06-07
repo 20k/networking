@@ -21,6 +21,11 @@
     std::vector<size_t> last_ratelimit_time; \
     void serialise(serialise_context& ctx, nlohmann::json& data, x* other = nullptr)
 
+#define SERIALISE_SIGNATURE_NOSMOOTH(x) \
+    static inline uint32_t id_counter = 0;\
+    std::vector<size_t> last_ratelimit_time; \
+    void serialise(serialise_context& ctx, nlohmann::json& data, x* other = nullptr)
+
 
 #define SERIALISE_BODY(x) void x::serialise(serialise_context& ctx, nlohmann::json& data, self_t* other)
 #define SERIALISE_BODY_SIMPLE(x) void x::serialise(serialise_context& ctx, nlohmann::json& data, x* other)
