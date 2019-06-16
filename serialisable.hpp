@@ -445,6 +445,21 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T*& in, const I&
         do_serialise(ctx, data, *in, name, fptr);
 }
 
+template<typename T, typename I>
+inline
+void do_serialise(serialise_context& ctx, nlohmann::json& data, std::shared_ptr<T>& in, const I& name, std::shared_ptr<T>* other)
+{
+    if(!in)
+        in = std::make_shared<T>();
+
+    T* fptr = nullptr;
+
+    if(other)
+        do_serialise(ctx, data, *in, name, &(**other));
+    else
+        do_serialise(ctx, data, *in, name, fptr);
+}
+
 /*template <typename T, typename Compare>
 std::vector<std::size_t> sort_permutation(
     const std::vector<T>& vec,
@@ -1033,6 +1048,13 @@ void do_recurse(serialise_context& ctx, std::map<T, U>& in)
 
 template<typename T>
 inline
+void do_recurse(serialise_context& ctx, std::shared_ptr<T>& ptr)
+{
+    do_recurse(ctx, *ptr);
+}
+
+template<typename T>
+inline
 void find_owned_id(serialise_context& ctx, T& in)
 {
     if(ctx.get_by_id_found)
@@ -1081,6 +1103,13 @@ void find_owned_id(serialise_context& ctx, std::map<T, U>& in)
     {
         find_owned_id(ctx, i.second);
     }
+}
+
+template<typename T>
+inline
+void find_owned_id(serialise_context& ctx, std::shared_ptr<T>& in)
+{
+    find_owned_id(ctx, *in);
 }
 
 template<typename T>
@@ -1380,6 +1409,19 @@ bool serialisable_is_eq_impl(serialise_context& ctx, std::vector<T>& one, std::v
     }
 
     return true;
+}
+
+template<typename T>
+inline
+bool serialisable_is_eq_impl(serialise_context& ctx, std::shared_ptr<T>& one, std::shared_ptr<T>& two)
+{
+    if((bool)one != (bool)two)
+        return false;
+
+    if(!one || !two)
+        return true;
+
+    return serialisable_is_eq_impl(ctx, *one, *two);
 }
 
 template<typename T, typename U>
