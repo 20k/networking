@@ -6,7 +6,6 @@
 #include <nlohmann/json_fwd.hpp>
 
 #define SERIALISE_SIGNATURE(x) \
-    std::vector<ts_vector> last_vals;\
     static inline uint32_t id_counter = 0;\
     static inline uint32_t id_counter2 = 0;\
     void serialise(serialise_context& ctx, nlohmann::json& data, x* other = nullptr)
@@ -21,7 +20,7 @@
 #define DECLARE_SERIALISE_FUNCTION(x) \
 void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other)
 
-#define SERIALISE_SETUP() static uint32_t id_counter = 0; std::vector<size_t> last_ratelimit_time;
+#define SERIALISE_SETUP() static uint32_t id_counter = 0; static uint32_t id_counter2 = 0;
 
 
 #define SERIALISE_BODY(x) void x::serialise(serialise_context& ctx, nlohmann::json& data, x* other)
@@ -67,5 +66,10 @@ struct rate_limited
 };
 
 struct ts_vector;
+
+struct smoothed
+{
+    std::vector<ts_vector> last_vals;
+};
 
 #endif // SERIALISABLE_FWD_HPP_INCLUDED

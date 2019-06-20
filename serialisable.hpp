@@ -61,16 +61,16 @@ namespace serialise_mode
                                 bool skip = false; \
                                 if constexpr(std::is_base_of_v<rate_limited, decltype(obj)>) \
                                 { \
-                                    last_ratelimit_time.resize(id_counter); \
+                                    obj->last_ratelimit_time.resize(id_counter); \
                                     \
                                     if(ctx.mode == serialise_mode::NETWORK && ctx.ratelimit && ctx.encode && rlim > 0) \
                                     { \
                                         size_t current_time = serialisable_time_ms(); \
                                         \
-                                        if(current_time < last_ratelimit_time[my_id##_x] + rlim) \
+                                        if(current_time < obj->last_ratelimit_time[my_id##_x] + rlim) \
                                             skip = true; \
                                         else \
-                                            last_ratelimit_time[my_id##_x] = current_time; \
+                                            obj->last_ratelimit_time[my_id##_x] = current_time; \
                                     } \
                                 } \
                                 if(stagger == ratelimits::STAGGER) \
@@ -117,23 +117,27 @@ namespace serialise_mode
 #define DO_SERIALISE_INTERPOLATE_IMPL(obj, x, mode) do{ \
                             static uint32_t my_id##_x = id_counter2++; \
                             static std::string s##_x = std::to_string(my_id##_x);\
-                            last_vals.resize(id_counter2);\
+                            obj->last_vals.resize(id_counter2);\
                             if((mode == interpolation_mode::ONLY_IF_STAGGERED && ctx.stagger_stack > 0) || mode == interpolation_mode::SMOOTH)\
                             {\
                                 if(ctx.update_interpolation)\
-                                    obj->x = last_vals[my_id##_x].get_update<decltype(obj->x)>();\
+                                    obj->x = obj->last_vals[my_id##_x].get_update<decltype(obj->x)>();\
                                 if(ctx.serialisation && !ctx.encode)\
-                                    last_vals[my_id##_x].add_val(obj->x, serialisable_time_ms());\
+                                    obj->last_vals[my_id##_x].add_val(obj->x, serialisable_time_ms());\
                             }\
                         }while(0);
 
-#define DO_SERIALISE(x) DO_SERIALISE_BASE(this, x, 0, ratelimits::NO_STAGGER)
+#define DO_SERIALISE(x)  DO_SERIALISE_BASE(this, x, 0, ratelimits::NO_STAGGER)
 #define DO_FSERIALISE(x) DO_SERIALISE_BASE(me, x, 0, ratelimits::NO_STAGGER)
 
 #define DO_SERIALISE_SMOOTH(x, y)   DO_SERIALISE_BASE(this, x, 0, ratelimits::NO_STAGGER) \
                                     DO_SERIALISE_INTERPOLATE_IMPL(this, x, y)
 
-#define DO_SERIALISE_RATELIMIT(x, y, z) DO_SERIALISE_BASE(this, x, y, z)
+#define DO_FSERIALISE_SMOOTH(x, y)  DO_SERIALISE_BASE(me, x, 0, ratelimits::NO_STAGGER) \
+                                    DO_SERIALISE_INTERPOLATE_IMPL(me, x, y)
+
+#define DO_SERIALISE_RATELIMIT(x, y, z)  DO_SERIALISE_BASE(this, x, y, z)
+#define DO_FSERIALISE_RATELIMIT(x, y, z) DO_SERIALISE_BASE(me, x, y, z)
 
 #define DO_RPC(x) do{ \
                         if(ctx.exec_rpcs) \
@@ -145,6 +149,22 @@ namespace serialise_mode
                                     if(dat.func == std::string(#x)) \
                                     { \
                                         exec_rpc(x, *this, dat.arg); \
+                                    } \
+                                } \
+                            } \
+                        } \
+                  }while(0)
+
+#define DO_FRPC(x) do{ \
+                        if(ctx.exec_rpcs) \
+                        { \
+                            if(auto it = ctx.inf.built.find(me->_pid); it != ctx.inf.built.end()) \
+                            { \
+                                for(rpc_data& dat : it->second) \
+                                { \
+                                    if(dat.func == std::string(#x)) \
+                                    { \
+                                        exec_rpc(decltype(me)::x, *me, dat.arg); \
                                     } \
                                 } \
                             } \
