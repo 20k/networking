@@ -114,11 +114,13 @@ struct network_protocol : serialisable
 {
     network_mode::type type = network_mode::COUNT;
     nlohmann::json data;
+    global_serialise_info rpcs;
 
     SERIALISE_SIGNATURE(network_protocol)
     {
         DO_SERIALISE(type);
         DO_SERIALISE(data);
+        DO_SERIALISE(rpcs);
     }
 };
 
