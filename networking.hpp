@@ -115,7 +115,7 @@ struct network_protocol : serialisable
     network_mode::type type = network_mode::COUNT;
     nlohmann::json data;
 
-    SERIALISE_SIGNATURE()
+    SERIALISE_SIGNATURE(network_protocol)
     {
         DO_SERIALISE(type);
         DO_SERIALISE(data);
@@ -210,7 +210,7 @@ struct delta_container : serialisable
 
     auto& operator[](size_t idx){return c[idx];}
 
-    SERIALISE_SIGNATURE()
+    SERIALISE_SIGNATURE(delta_container<T>)
     {
         if(!ctx.serialisation)
             return;
@@ -243,91 +243,5 @@ struct delta_container : serialisable
         d.clear();
     }
 };
-
-
-///ok so these two classes are compatible with each other
-///the idea is that the owning one sets itself to be host_persistent by inheriting
-///then serialises pid
-///then the child one uses persistent<type>
-
-///maybe if host_persistent<> kept a far away version
-///then whenever we receive a new one, we copy over data members from far away to us
-///and vice versa
-
-///maybe just have a unique base which contains a _pid and integrate it right into
-///serialisation so it does the detection and stuff
-#if 0
-template<typename T>
-struct persistent : serialisable
-{
-    size_t _pid = 0;
-
-    persistent()
-    {
-        _pid = get_next_persistent_id();
-    }
-
-    T& operator*()
-    {
-        std::shared_ptr<T>& sptr = get_tls_ptr<T>(_pid);
-
-        return *sptr.get();
-    }
-
-    T* operator->()
-    {
-        std::shared_ptr<T>& sptr = get_tls_ptr<T>(_pid);
-
-        return sptr.get();
-    }
-
-    SERIALISE_SIGNATURE()
-    {
-        DO_SERIALISE(_pid);
-
-        std::shared_ptr<T>& sptr = get_tls_ptr<T>(_pid);
-
-        T* ptr = sptr.get();
-
-        DO_SERIALISE(ptr);
-    }
-
-    /*persistent(const persistent<T>& other)
-    {
-        pid = get_next_persistent_id();
-
-        std::shared_ptr<T>& p1 = get_tls_ptr<T>(pid);
-        std::shared_ptr<T>& p2 = get_tls_ptr<T>(other.pid);
-
-        *p1.get() = *p2.get();
-    }
-
-    persistent<T>& operator=(const persistent<T>& other)
-    {
-        std::shared_ptr<T>& p1 = get_tls_ptr<T>(pid);
-        std::shared_ptr<T>& p2 = get_tls_ptr<T>(other.pid);
-
-        *p1.get() = *p2.get();
-
-        return *this;
-    }*/
-};
-
-template<typename T>
-struct host_persistent : virtual serialisable
-{
-    size_t _pid = 0;
-
-    host_persistent()
-    {
-        _pid = get_next_persistent_id();
-    }
-
-    SERIALISE_SIGNATURE()
-    {
-        DO_SERIALISE(_pid);
-    }
-};
-#endif // 0
 
 #endif // NETWORKING_HPP_INCLUDED

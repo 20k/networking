@@ -5,39 +5,27 @@
 #include <vector>
 #include <nlohmann/json_fwd.hpp>
 
-#define SERIALISE_SIGNATURE() \
+#define SERIALISE_SIGNATURE(x) \
     std::vector<ts_vector> last_vals;\
     static inline uint32_t id_counter = 0;\
     static inline uint32_t id_counter2 = 0;\
-    std::vector<size_t> last_ratelimit_time; \
-    void _internal_helper(){}\
-    using self_t = typename class_extractor<decltype(&_internal_helper)>::class_t;\
-    void serialise(serialise_context& ctx, nlohmann::json& data, self_t* other = nullptr)
-
-#define SERIALISE_SIGNATURE_SIMPLE(x) \
-    std::vector<ts_vector> last_vals;\
-    static inline uint32_t id_counter = 0;\
-    static inline uint32_t id_counter2 = 0;\
-    std::vector<size_t> last_ratelimit_time; \
     void serialise(serialise_context& ctx, nlohmann::json& data, x* other = nullptr)
+
+#define SERIALISE_SIGNATURE_SIMPLE(x) SERIALISE_SIGNATURE(x)
 
 #define SERIALISE_SIGNATURE_NOSMOOTH(x) \
     static inline uint32_t id_counter = 0;\
-    std::vector<size_t> last_ratelimit_time; \
     void serialise(serialise_context& ctx, nlohmann::json& data, x* other = nullptr)
 
 
-#define SERIALISE_BODY(x) void x::serialise(serialise_context& ctx, nlohmann::json& data, self_t* other)
-#define SERIALISE_BODY_SIMPLE(x) void x::serialise(serialise_context& ctx, nlohmann::json& data, x* other)
+#define DECLARE_SERIALISE_FUNCTION(x) \
+void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other)
 
-template<typename T>
-struct class_extractor;
+#define SERIALISE_SETUP() static uint32_t id_counter = 0; std::vector<size_t> last_ratelimit_time;
 
-template<typename C, typename R, typename... Args>
-struct class_extractor<R(C::*)(Args...)>
-{
-    using class_t = C;
-};
+
+#define SERIALISE_BODY(x) void x::serialise(serialise_context& ctx, nlohmann::json& data, x* other)
+#define SERIALISE_BODY_SIMPLE(x) SERIALISE_BODY(x)
 
 struct serialise_context;
 
@@ -63,9 +51,19 @@ struct owned
 
 struct serialisable
 {
-    static size_t time_ms();
+    std::vector<size_t> last_ratelimit_time;
 
-    virtual ~serialisable();
+    virtual ~serialisable(){}
+};
+
+struct free_function
+{
+
+};
+
+struct rate_limited
+{
+
 };
 
 struct ts_vector;

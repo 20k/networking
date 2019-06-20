@@ -46,49 +46,52 @@ namespace serialise_mode
 
 #define PID_STRING "_"
 
-#define DO_SERIALISE_BASE(x, rlim, stagger) do{ \
+#define DO_SERIALISE_BASE(obj, x, rlim, stagger) do{ \
                             static uint32_t my_id##_x = id_counter++; \
                             static std::string s##_x = std::to_string(my_id##_x);\
                             const std::string& my_name = ctx.mode == serialise_mode::NETWORK ? s##_x : #x;\
                             assert(ctx.mode == serialise_mode::NETWORK || ctx.mode == serialise_mode::DISK);\
                             if(ctx.serialisation) \
                             { \
-                                decltype(this->x)* fptr = nullptr;\
+                                decltype(obj->x)* fptr = nullptr;\
                                 \
                                 if(other) \
                                     fptr = &other->x; \
                                 \
-                                last_ratelimit_time.resize(id_counter); \
-                                \
                                 bool skip = false; \
-                                if(ctx.mode == serialise_mode::NETWORK && ctx.ratelimit && ctx.encode && rlim > 0) \
+                                if constexpr(std::is_base_of_v<rate_limited, decltype(obj)>) \
                                 { \
-                                    size_t current_time = time_ms(); \
+                                    last_ratelimit_time.resize(id_counter); \
                                     \
-                                    if(current_time < last_ratelimit_time[my_id##_x] + rlim) \
-                                        skip = true; \
-                                    else \
-                                        last_ratelimit_time[my_id##_x] = current_time; \
+                                    if(ctx.mode == serialise_mode::NETWORK && ctx.ratelimit && ctx.encode && rlim > 0) \
+                                    { \
+                                        size_t current_time = serialisable_time_ms(); \
+                                        \
+                                        if(current_time < last_ratelimit_time[my_id##_x] + rlim) \
+                                            skip = true; \
+                                        else \
+                                            last_ratelimit_time[my_id##_x] = current_time; \
+                                    } \
                                 } \
                                 if(stagger == ratelimits::STAGGER) \
                                     ctx.stagger_stack++; \
                                 \
-                                if(!skip && (other == nullptr || !ctx.encode || !serialisable_is_equal_cached(ctx, &this->x, fptr))) \
-                                    do_serialise(ctx, data, this->x, my_name, fptr); \
+                                if(!skip && (other == nullptr || !ctx.encode || !serialisable_is_equal(&obj->x, fptr))) \
+                                    do_serialise(ctx, data, obj->x, my_name, fptr); \
                                 \
                                 if(stagger == ratelimits::STAGGER) \
                                     ctx.stagger_stack--; \
                             } \
                             if(ctx.exec_rpcs) \
                             { \
-                                do_recurse(ctx, this->x); \
+                                do_recurse(ctx, obj->x); \
                             } \
                             if(ctx.check_eq) \
                             { \
                                 if(!ctx.is_eq_so_far) \
                                     return; \
                                 assert(other != nullptr); \
-                                if(!serialisable_is_eq_impl(ctx, this->x, other->x)) \
+                                if(!serialisable_is_eq_impl(ctx, obj->x, other->x)) \
                                 { \
                                     ctx.is_eq_so_far = false; \
                                     return; \
@@ -98,38 +101,39 @@ namespace serialise_mode
                             { \
                                 if(ctx.get_by_id_found)\
                                     return;\
-                                find_owned_id(ctx, this->x); \
+                                find_owned_id(ctx, obj->x); \
                             }\
                             \
                             if(ctx.update_interpolation){\
                                 if(stagger == ratelimits::STAGGER) \
                                     ctx.stagger_stack++;\
-                                do_recurse(ctx, this->x);\
+                                do_recurse(ctx, obj->x);\
                                 if(stagger == ratelimits::STAGGER) \
                                     ctx.stagger_stack--;\
                             }\
                             \
                         }while(0);
 
-#define DO_SERIALISE_INTERPOLATE_IMPL(x, mode) do{ \
+#define DO_SERIALISE_INTERPOLATE_IMPL(obj, x, mode) do{ \
                             static uint32_t my_id##_x = id_counter2++; \
                             static std::string s##_x = std::to_string(my_id##_x);\
                             last_vals.resize(id_counter2);\
                             if((mode == interpolation_mode::ONLY_IF_STAGGERED && ctx.stagger_stack > 0) || mode == interpolation_mode::SMOOTH)\
                             {\
                                 if(ctx.update_interpolation)\
-                                    this->x = last_vals[my_id##_x].get_update<decltype(this->x)>();\
+                                    obj->x = last_vals[my_id##_x].get_update<decltype(obj->x)>();\
                                 if(ctx.serialisation && !ctx.encode)\
-                                    last_vals[my_id##_x].add_val(this->x, serialisable_time_ms());\
+                                    last_vals[my_id##_x].add_val(obj->x, serialisable_time_ms());\
                             }\
                         }while(0);
 
-#define DO_SERIALISE(x) DO_SERIALISE_BASE(x, 0, ratelimits::NO_STAGGER)
+#define DO_SERIALISE(x) DO_SERIALISE_BASE(this, x, 0, ratelimits::NO_STAGGER)
+#define DO_FSERIALISE(x) DO_SERIALISE_BASE(me, x, 0, ratelimits::NO_STAGGER)
 
-#define DO_SERIALISE_SMOOTH(x, y)   DO_SERIALISE_BASE(x, 0, ratelimits::NO_STAGGER) \
-                                    DO_SERIALISE_INTERPOLATE_IMPL(x, y)
+#define DO_SERIALISE_SMOOTH(x, y)   DO_SERIALISE_BASE(this, x, 0, ratelimits::NO_STAGGER) \
+                                    DO_SERIALISE_INTERPOLATE_IMPL(this, x, y)
 
-#define DO_SERIALISE_RATELIMIT(x, y, z) DO_SERIALISE_BASE(x, y, z)
+#define DO_SERIALISE_RATELIMIT(x, y, z) DO_SERIALISE_BASE(this, x, y, z)
 
 #define DO_RPC(x) do{ \
                         if(ctx.exec_rpcs) \
@@ -151,10 +155,6 @@ namespace serialise_mode
 { \
     rpc(#function_name , *this, std::forward<T>(t)...);\
 }
-
-uint32_t string_hash(const std::string& in);
-
-//uint32_t hacky_string_hash(const char* static_string);
 
 inline
 bool nlohmann_has_name(const nlohmann::json& data, const char* name)
@@ -187,7 +187,7 @@ struct rpc_data : serialisable
     std::string func;
     nlohmann::json arg;
 
-    SERIALISE_SIGNATURE();
+    SERIALISE_SIGNATURE(rpc_data);
 };
 
 struct global_serialise_info : serialisable
@@ -196,7 +196,7 @@ struct global_serialise_info : serialisable
 
     std::map<size_t, std::vector<rpc_data>> built;
 
-    SERIALISE_SIGNATURE();
+    SERIALISE_SIGNATURE(global_serialise_info);
 };
 
 /*struct serialise_context;
@@ -323,13 +323,27 @@ void make_finite(double& in)
     }
 }
 
+template<typename T>
+void call_serialise(T& in, serialise_context& ctx, nlohmann::json& json, T* other = nullptr)
+{
+    if constexpr(std::is_base_of_v<free_function, T>)
+    {
+        serialise_base(&in, ctx, json, other);
+    }
+
+    if constexpr(!std::is_base_of_v<free_function, T>)
+    {
+        in.serialise(ctx, json, other);
+    }
+}
+
 template<int N, typename T, typename I>
 inline
 void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, const I& name, vec<N, T>* other)
 {
     if(ctx.encode)
     {
-        if(serialisable_is_equal_cached(ctx, &in, other))
+        if(serialisable_is_equal(&in, other))
             return;
 
         for(int i=0; i < N; i++)
@@ -391,7 +405,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
         if(staggering)
             ctx.stagger_stack--;
 
-        in.serialise(ctx, data[name], other);
+        call_serialise(in, ctx, data[name], other);
 
         if(staggering)
             ctx.stagger_stack++;
@@ -409,7 +423,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
     {
         if(ctx.encode)
         {
-            if(serialisable_is_equal_cached(ctx, &in, other))
+            if(serialisable_is_equal(&in, other))
                 return;
 
             data[name] = in;
@@ -1015,7 +1029,7 @@ void do_recurse(serialise_context& ctx, T& in)
     {
         //func(in);
 
-        in.serialise(ctx, ctx.faux);
+        call_serialise(in, ctx, ctx.faux);
     }
 }
 
@@ -1074,7 +1088,7 @@ void find_owned_id(serialise_context& ctx, T& in)
     {
         //func(in);
 
-        in.serialise(ctx, ctx.faux);
+        call_serialise(in, ctx, ctx.faux);
     }
 }
 
@@ -1144,7 +1158,7 @@ void update_interpolated_variables(T& in)
 
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
-        in.serialise(ctx, ctx.faux);
+        call_serialise(in, ctx, ctx.faux);
     }
 }
 
@@ -1161,7 +1175,7 @@ nlohmann::json serialise(T& in, serialise_mode::type mode)
 
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
-        in.serialise(ctx, data);
+        call_serialise(in, ctx, data);
     }
 
     if constexpr(!std::is_base_of_v<serialisable, T>)
@@ -1199,7 +1213,7 @@ nlohmann::json serialise_against(T& in, T& against, bool ratelimit, int stagger_
 
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
-        in.serialise(ctx, data, &against);
+        call_serialise(in, ctx, data, &against);
     }
 
     if constexpr(!std::is_base_of_v<serialisable, T>)
@@ -1234,7 +1248,7 @@ T deserialise(nlohmann::json& in)
 
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
-        ret.serialise(ctx, in);
+        call_serialise(ret, ctx, in);
     }
 
     if constexpr(!std::is_base_of_v<serialisable, T>)
@@ -1261,7 +1275,7 @@ void deserialise(nlohmann::json& in, T& dat, serialise_mode::type mode = seriali
 
     if constexpr(std::is_base_of_v<serialisable, T>)
     {
-        dat.serialise(ctx, in);
+        call_serialise(dat, ctx, in);
     }
 
     if constexpr(!std::is_base_of_v<serialisable, T>)
@@ -1379,7 +1393,7 @@ bool serialisable_is_eq_impl(serialise_context& ctx, T& one, T& two)
             ///this hack is getting kind of bad
             nlohmann::json dummy;
 
-            one.serialise(ctx, dummy, &two);
+            call_serialise(one, ctx, dummy, &two);
             success = ctx.is_eq_so_far;
             has_success = true;
         }

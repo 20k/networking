@@ -3,47 +3,6 @@
 #include <fstream>
 #include "netinterpolate.hpp"
 
-#define mmix(h,k) { k *= m; k ^= k >> r; k *= m; h *= m; h ^= k; }
-
-uint32_t MurmurHash2A ( const void * key, int len, uint32_t seed )
-{
-    const uint32_t m = 0x5bd1e995;
-    const int r = 24;
-    uint32_t l = len;
-
-    const unsigned char * data = (const unsigned char *)key;
-
-    uint32_t h = seed;
-
-    while(len >= 4)
-    {
-    uint32_t k = *(uint32_t*)data;
-
-    mmix(h,k);
-
-    data += 4;
-    len -= 4;
-    }
-
-    uint32_t t = 0;
-
-    switch(len)
-    {
-    case 3: t ^= data[2] << 16; [[fallthrough]];
-    case 2: t ^= data[1] << 8; [[fallthrough]];
-    case 1: t ^= data[0]; [[fallthrough]];
-    };
-
-    mmix(h,t);
-    mmix(h,l);
-
-    h ^= h >> 13;
-    h *= m;
-    h ^= h >> 15;
-
-    return h;
-}
-
 /*bool nlohmann_has_name(const nlohmann::json& data, const std::string& name)
 {
     return data.count(name) > 0 && !data[name].is_null();
@@ -81,32 +40,40 @@ serialise_context_proxy::serialise_context_proxy(serialise_context_proxy& ctx, c
 serialise_context_proxy::serialise_context_proxy(serialise_context_proxy& ctx, int name) : last(ctx.last[name]) {}*/
 
 
-
-uint32_t string_hash(const std::string& in)
-{
-    return MurmurHash2A(in.c_str(), in.size(), 1);
-}
-
-struct test_serialisable : serialisable
+/*struct test_serialisable : serialisable
 {
     SERIALISE_SIGNATURE();
 
     int test_datamember = 0;
+};*/
+
+struct test_serialisable : serialisable, free_function
+{
+    int test_datamember = 0;
 };
 
-void rpc_data::serialise(serialise_context& ctx, nlohmann::json& data, self_t* other)
+DECLARE_SERIALISE_FUNCTION(test_serialisable)
+{
+    SERIALISE_SETUP();
+
+    DO_FSERIALISE(test_datamember);
+}
+
+SERIALISE_BODY(rpc_data)
 {
     DO_SERIALISE(id);
     DO_SERIALISE(func);
     DO_SERIALISE(arg);
 }
 
-void test_serialisable::serialise(serialise_context& ctx, nlohmann::json& data, self_t* other)
+/*void test_serialisable::serialise(serialise_context& ctx, nlohmann::json& data, self_t* other)
 {
     DO_SERIALISE(test_datamember);
-}
+}*/
 
-void global_serialise_info::serialise(serialise_context& ctx, nlohmann::json& data, self_t* other)
+
+
+SERIALISE_BODY(global_serialise_info)
 {
     DO_SERIALISE(all_rpcs);
 
@@ -121,26 +88,16 @@ void global_serialise_info::serialise(serialise_context& ctx, nlohmann::json& da
     }
 }
 
-size_t serialisable::time_ms()
-{
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-}
-
 size_t serialisable_time_ms()
 {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-}
-
-serialisable::~serialisable()
-{
-
 }
 
 struct data_1 : serialisable, owned
 {
     float my_float = 0;
 
-    SERIALISE_SIGNATURE()
+    SERIALISE_SIGNATURE(data_1)
     {
         DO_SERIALISE(my_float);
     }
@@ -158,7 +115,7 @@ struct data_2 : serialisable, owned
         test_owned.push_back(mdata);
     }
 
-    SERIALISE_SIGNATURE()
+    SERIALISE_SIGNATURE(data_2)
     {
         DO_SERIALISE(test_owned);
     }
