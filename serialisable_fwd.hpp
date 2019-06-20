@@ -16,22 +16,24 @@
     static inline uint32_t id_counter = 0;\
     void serialise(serialise_context& ctx, nlohmann::json& data, x* other = nullptr)
 
-
 #define DECLARE_SERIALISE_FUNCTION(x) \
-template<>\
-inline \
-constexpr bool is_serialisable<x>(){return true;}\
+template<> inline constexpr bool is_serialisable<x>(){return true;}\
+template<> inline constexpr bool is_free_function<x>(){return true;}\
 void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other);
+
+#define DECLARE_OWNED(x) \
+template<> inline constexpr bool is_owned<x>(){return true;}\
+
+#define DECLARE_RATELIMIT(x) \
+template<> inline constexpr bool is_owned<x>(){return true;}\
 
 #define DEFINE_SERIALISE_FUNCTION(x) \
 void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other)
 
-#define SERIALISE_SETUP() static uint32_t id_counter = 0; static uint32_t id_counter2 = 0;
-
+#define SERIALISE_SETUP() static uint32_t id_counter = 0; [[maybe_unused]] static uint32_t id_counter2 = 0;
 
 #define SERIALISE_BODY(x) void x::serialise(serialise_context& ctx, nlohmann::json& data, x* other)
 #define SERIALISE_BODY_SIMPLE(x) SERIALISE_BODY(x)
-
 
 struct serialise_context;
 
