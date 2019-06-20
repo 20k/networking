@@ -164,7 +164,7 @@ namespace serialise_mode
                                 { \
                                     if(dat.func == std::string(#x)) \
                                     { \
-                                        exec_rpc(decltype(me)::x, *me, dat.arg); \
+                                        exec_rpc(std::remove_pointer_t<decltype(me)>::x, *me, dat.arg); \
                                     } \
                                 } \
                             } \
