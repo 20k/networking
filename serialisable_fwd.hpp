@@ -17,15 +17,16 @@
     void serialise(serialise_context& ctx, nlohmann::json& data, x* other = nullptr)
 
 #define DECLARE_SERIALISE_FUNCTION(x) \
-template<> inline constexpr bool is_serialisable<x>(){return true;}\
-template<> inline constexpr bool is_free_function<x>(){return true;}\
 void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other);
+
+/*template<> inline constexpr bool is_serialisable<x>(){return true;}\
+template<> inline constexpr bool is_free_function<x>(){return true;}\
 
 #define DECLARE_OWNED(x) \
 template<> inline constexpr bool is_owned<x>(){return true;}\
 
 #define DECLARE_RATELIMIT(x) \
-template<> inline constexpr bool is_owned<x>(){return true;}\
+template<> inline constexpr bool is_owned<x>(){return true;}\*/
 
 #define DEFINE_SERIALISE_FUNCTION(x) \
 void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other)
@@ -34,6 +35,16 @@ void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* othe
 
 #define SERIALISE_BODY(x) void x::serialise(serialise_context& ctx, nlohmann::json& data, x* other)
 #define SERIALISE_BODY_SIMPLE(x) SERIALISE_BODY(x)
+
+#define DECLARE_FRIENDLY_RPC(x, ...) void x##_rpc(__VA_ARGS__);
+#define DEFINE_FRIENDLY_RPC0(c, x) void c::x##_rpc(y one){rpc(#x, *this);}
+#define DEFINE_FRIENDLY_RPC1(c, x, y) void c::x##_rpc(y one){rpc(#x, *this, one);}
+#define DEFINE_FRIENDLY_RPC2(c, x, y, z) void c::x##_rpc(y one, z two){rpc(#x, *this, one, two);}
+#define DEFINE_FRIENDLY_RPC3(c, x, y, z, w) void c::x##_rpc(y one, z two, w three){rpc(#x, *this, one, two, three);}
+#define DEFINE_FRIENDLY_RPC4(c, x, y, z, w, a) void c::x##_rpc(y one, z two, w three, a four){rpc(#x, *this, one, two, three, four);}
+#define DEFINE_FRIENDLY_RPC5(c, x, y, z, w, a, b) void c::x##_rpc(y one, z two, w three, a four, b five){rpc(#x, *this, one, two, three, four, five);}
+
+//#define DEFINE_FRIENDLY_RPC(
 
 struct serialise_context;
 
@@ -74,7 +85,7 @@ struct rate_limited
 
 };
 
-template<typename T>
+/*template<typename T>
 inline
 constexpr bool is_serialisable()
 {
@@ -100,7 +111,7 @@ inline
 constexpr bool is_rate_limited()
 {
     return false;
-}
+}*/
 
 struct ts_vector;
 
