@@ -17,6 +17,7 @@
     void serialise(serialise_context& ctx, nlohmann::json& data, x* other = nullptr)
 
 #define DECLARE_SERIALISE_FUNCTION(x) \
+struct x; \
 void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other);
 
 /*template<> inline constexpr bool is_serialisable<x>(){return true;}\
