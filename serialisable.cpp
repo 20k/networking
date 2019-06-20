@@ -52,7 +52,7 @@ struct test_serialisable : serialisable, free_function
     int test_datamember = 0;
 };
 
-DECLARE_SERIALISE_FUNCTION(test_serialisable)
+DEFINE_SERIALISE_FUNCTION(test_serialisable)
 {
     SERIALISE_SETUP();
 

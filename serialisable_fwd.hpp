@@ -18,6 +18,12 @@
 
 
 #define DECLARE_SERIALISE_FUNCTION(x) \
+template<>\
+inline \
+constexpr bool is_serialisable<x>(){return true;}\
+void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other);
+
+#define DEFINE_SERIALISE_FUNCTION(x) \
 void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other)
 
 #define SERIALISE_SETUP() static uint32_t id_counter = 0; static uint32_t id_counter2 = 0;
@@ -25,6 +31,7 @@ void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* othe
 
 #define SERIALISE_BODY(x) void x::serialise(serialise_context& ctx, nlohmann::json& data, x* other)
 #define SERIALISE_BODY_SIMPLE(x) SERIALISE_BODY(x)
+
 
 struct serialise_context;
 
@@ -64,6 +71,34 @@ struct rate_limited
 {
 
 };
+
+template<typename T>
+inline
+constexpr bool is_serialisable()
+{
+    return false;
+}
+
+template<typename T>
+inline
+constexpr bool is_owned()
+{
+    return false;
+}
+
+template<typename T>
+inline
+constexpr bool is_free_function()
+{
+    return false;
+}
+
+template<typename T>
+inline
+constexpr bool is_rate_limited()
+{
+    return false;
+}
 
 struct ts_vector;
 
