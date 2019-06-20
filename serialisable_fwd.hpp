@@ -32,7 +32,7 @@ template<> inline constexpr bool is_owned<x>(){return true;}\*/
 #define DEFINE_SERIALISE_FUNCTION(x) \
 void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other)
 
-#define SERIALISE_SETUP() static uint32_t id_counter = 0; [[maybe_unused]] static uint32_t id_counter2 = 0;
+#define SERIALISE_SETUP() [[maybe_unused]] static uint32_t id_counter = 0; [[maybe_unused]] static uint32_t id_counter2 = 0;
 
 #define SERIALISE_BODY(x) void x::serialise(serialise_context& ctx, nlohmann::json& data, x* other)
 #define SERIALISE_BODY_SIMPLE(x) SERIALISE_BODY(x)
