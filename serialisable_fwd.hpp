@@ -37,7 +37,7 @@ void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* othe
 #define SERIALISE_BODY_SIMPLE(x) SERIALISE_BODY(x)
 
 #define DECLARE_FRIENDLY_RPC(x, ...) void x##_rpc(__VA_ARGS__);
-#define DEFINE_FRIENDLY_RPC0(c, x) void c::x##_rpc(y one){rpc(#x, *this);}
+#define DEFINE_FRIENDLY_RPC0(c, x) void c::x##_rpc(){rpc(#x, *this);}
 #define DEFINE_FRIENDLY_RPC1(c, x, y) void c::x##_rpc(y one){rpc(#x, *this, one);}
 #define DEFINE_FRIENDLY_RPC2(c, x, y, z) void c::x##_rpc(y one, z two){rpc(#x, *this, one, two);}
 #define DEFINE_FRIENDLY_RPC3(c, x, y, z, w) void c::x##_rpc(y one, z two, w three){rpc(#x, *this, one, two, three);}
