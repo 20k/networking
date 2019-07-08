@@ -258,6 +258,43 @@ struct network_data_model
 
         return data[id];
     }
+
+    void update_client(connection& conn, uint64_t i, int stagger_id)
+    {
+        T& next_data = fetch_by_id(i);
+
+        if(backup.find(i) != backup.end())
+        {
+            nlohmann::json ret = serialise_against(next_data, backup[i], true, stagger_id);
+
+            std::vector<uint8_t> cb = nlohmann::json::to_cbor(ret);
+
+            write_data dat;
+            dat.id = i;
+            dat.data = std::string(cb.begin(), cb.end());
+
+            conn.write_to(dat);
+
+            ///basically clones model, by applying the current diff to last model
+            ///LEAKS MEMORY ON POINTERS
+            deserialise(ret, backup[i]);
+        }
+        else
+        {
+            nlohmann::json ret = serialise(next_data);
+
+            std::vector<uint8_t> cb = nlohmann::json::to_cbor(ret);
+
+            write_data dat;
+            dat.id = i;
+            dat.data = std::string(cb.begin(), cb.end());
+
+            conn.write_to(dat);
+
+            backup[i] = T();
+            serialisable_clone(next_data, backup[i]);
+        }
+    }
 };
 
 #endif // NETWORKING_HPP_INCLUDED
