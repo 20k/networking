@@ -246,4 +246,18 @@ struct delta_container : serialisable
     }
 };
 
+template<typename T>
+struct network_data_model
+{
+    std::map<uint64_t, T> data;
+    std::map<uint64_t, T> backup;
+
+    T& fetch_by_id(uint64_t id)
+    {
+        backup[id];
+
+        return data[id];
+    }
+};
+
 #endif // NETWORKING_HPP_INCLUDED
