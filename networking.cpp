@@ -160,7 +160,7 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
     {
         // This indicates that the session was closed
         if(se.code() != websocket::error::closed)
-            std::cerr << "Error: " << se.code().message() << std::endl;
+            std::cerr << "Websock Session Error: " << se.code().message() << std::endl;
     }
     catch(std::exception const& e)
     {
