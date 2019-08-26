@@ -31,6 +31,9 @@ struct connection
     std::optional<uint64_t> has_new_client();
     void pop_new_client();
 
+    std::optional<uint64_t> has_disconnected_client();
+    void pop_disconnected_client();
+
     std::vector<uint64_t> clients();
 
     size_t last_read_from = -1;
@@ -94,6 +97,9 @@ struct connection
     std::vector<uint64_t> new_clients;
     std::vector<uint64_t> connected_clients;
     std::vector<std::thread> thrd;
+
+    std::mutex disconnected_lock;
+    std::vector<uint64_t> disconnected_clients;
 
 private:
     bool is_client = true;

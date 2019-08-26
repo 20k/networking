@@ -18,12 +18,6 @@ using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
 namespace websocket = boost::beast::websocket;  // from <boost/beast/websocket.hpp>
 
 void
-fail(boost::system::error_code ec, char const* what)
-{
-    std::cerr << what << ": " << ec.message() << "\n";
-}
-
-void
 server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socket& socket)
 {
     uint64_t id = -1;
@@ -185,6 +179,11 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
                 continue;
             }
         }
+    }
+
+    {
+        std::lock_guard guard(conn.disconnected_lock);
+        conn.disconnected_clients.push_back(id);
     }
 }
 
@@ -485,6 +484,28 @@ std::optional<uint64_t> connection::has_new_client()
     }
 
     return std::nullopt;
+}
+
+std::optional<uint64_t> connection::has_disconnected_client()
+{
+    std::lock_guard guard(disconnected_lock);
+
+    for(auto& i : disconnected_clients)
+    {
+        return i;
+    }
+
+    return std::nullopt;
+}
+
+void connection::pop_disconnected_client()
+{
+    std::lock_guard guard(disconnected_lock);
+
+    if(disconnected_clients.size() == 0)
+        throw std::runtime_error("No disconnected clients");
+
+    disconnected_clients.erase(disconnected_clients.begin());
 }
 
 void connection::pop_new_client()
