@@ -1312,6 +1312,9 @@ void deserialise(nlohmann::json& in, T& dat, serialise_mode::type mode = seriali
 void save_to_file(const std::string& fname, const nlohmann::json& data);
 nlohmann::json load_from_file(const std::string& fname);
 
+void save_to_file_json(const std::string& fname, const nlohmann::json& data);
+nlohmann::json load_from_file_json(const std::string& fname);
+
 ///ok
 ///we gotta do pointers basically
 ///or each frame, just before checking rpcs, make a map if ids to things that could be rpc'd

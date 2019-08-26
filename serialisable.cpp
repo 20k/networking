@@ -280,3 +280,18 @@ nlohmann::json load_from_file(const std::string& fname)
 
     return nlohmann::json::from_cbor(str);
 }
+
+void save_to_file_json(const std::string& fname, const nlohmann::json& data)
+{
+    std::ofstream out(fname, std::ios::binary);
+    out << data.dump();
+}
+
+nlohmann::json load_from_file_json(const std::string& fname)
+{
+    std::ifstream t(fname, std::ios::binary);
+    std::string str((std::istreambuf_iterator<char>(t)),
+                     std::istreambuf_iterator<char>());
+
+    return nlohmann::json::parse(str);
+}
