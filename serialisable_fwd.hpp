@@ -3,7 +3,12 @@
 
 #include <stdint.h>
 #include <vector>
+
+#if __has_include(<nlohmann/json_fwd.hpp>)
 #include <nlohmann/json_fwd.hpp>
+#else
+#include <nlohmann/json.hpp>
+#endif // __has_include
 
 #define SERIALISE_SIGNATURE(x) \
     static inline uint32_t id_counter = 0;\
