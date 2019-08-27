@@ -156,8 +156,11 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
                         size_t n = buffer_copy(wbuffer.prepare(next.data.size()), boost::asio::buffer(next.data));
                         wbuffer.commit(n);
 
-                        ws.async_write(wbuffer.data(), [&](boost::system::error_code, std::size_t)
+                        ws.async_write(wbuffer.data(), [&](boost::system::error_code ec, std::size_t)
                                        {
+                                            if(ec.failed())
+                                                throw std::runtime_error("Write err\n");
+
                                             async_write = false;
                                             should_continue = true;
                                        });
@@ -170,8 +173,11 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
 
                 if(!async_read)
                 {
-                    ws.async_read(rbuffer, [&](boost::system::error_code, std::size_t)
+                    ws.async_read(rbuffer, [&](boost::system::error_code ec, std::size_t)
                                   {
+                                      if(ec.failed())
+                                          throw std::runtime_error("Read err\n");
+
                                       std::string next = boost::beast::buffers_to_string(rbuffer.data());
 
                                       std::lock_guard guard(read_mutex);
@@ -391,8 +397,11 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
                         write_queue.erase(write_queue.begin());
 
-                        ws.async_write(wbuffer.data(), [&](boost::system::error_code, std::size_t)
+                        ws.async_write(wbuffer.data(), [&](boost::system::error_code ec, std::size_t)
                                        {
+                                            if(ec.failed())
+                                                throw std::runtime_error("Write err\n");
+
                                             async_write = false;
                                             should_continue = true;
                                        });
@@ -405,8 +414,11 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
                 if(!async_read)
                 {
-                    ws.async_read(rbuffer, [&](boost::system::error_code, std::size_t)
+                    ws.async_read(rbuffer, [&](boost::system::error_code ec, std::size_t)
                                   {
+                                      if(ec.failed())
+                                          throw std::runtime_error("Read err\n");
+
                                       std::string next = boost::beast::buffers_to_string(rbuffer.data());
 
                                       std::lock_guard guard(read_mutex);
