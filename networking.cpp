@@ -4,6 +4,8 @@
 #include <boost/beast/websocket.hpp>
 #include <boost/asio/connect.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/ssl/stream.hpp>
+#include <boost/beast/websocket/ssl.hpp>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -13,21 +15,75 @@
 #include <thread>
 #include <vector>
 #include <SFML/System/Sleep.hpp>
+#include <fstream>
+
+inline
+std::string read_file_bin(const std::string& file)
+{
+    std::ifstream t(file, std::ios::binary);
+    std::string str((std::istreambuf_iterator<char>(t)),
+                     std::istreambuf_iterator<char>());
+
+    if(!t.good())
+        throw std::runtime_error("Could not open file " + file);
+
+    return str;
+}
 
 using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
 namespace websocket = boost::beast::websocket;  // from <boost/beast/websocket.hpp>
+namespace ssl = boost::asio::ssl;               // from <boost/asio/ssl.hpp>
 
+template<typename T>
 void
 server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socket& socket)
 {
     uint64_t id = -1;
+    T* wps = nullptr;
 
     try
     {
-        websocket::stream<tcp::socket> ws{std::move(socket)};
-
         boost::asio::ip::tcp::no_delay nagle(true);
-        ws.next_layer().set_option(nagle);
+        ssl::context ctx{ssl::context::sslv23};
+
+        if constexpr(std::is_same_v<T, websocket::stream<tcp::socket>>)
+        {
+            wps = new T{std::move(socket)};
+
+            wps->next_layer().set_option(nagle);
+        }
+
+        if constexpr(std::is_same_v<T, websocket::stream<ssl::stream<tcp::socket>>>)
+        {
+            static std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
+            static std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
+            static std::string key = read_file_bin("./deps/secret/cert/key.pem");
+
+            ctx.set_options(boost::asio::ssl::context::default_workarounds |
+                            boost::asio::ssl::context::no_sslv2 |
+                            boost::asio::ssl::context::single_dh_use |
+                            boost::asio::ssl::context::no_sslv3);
+
+            ctx.use_certificate_chain(
+                boost::asio::buffer(cert.data(), cert.size()));
+
+            ctx.use_private_key(
+                boost::asio::buffer(key.data(), key.size()),
+                boost::asio::ssl::context::file_format::pem);
+
+            ctx.use_tmp_dh(
+                boost::asio::buffer(dh.data(), dh.size()));
+
+            wps = new T{std::move(socket), ctx};
+
+            wps->next_layer().next_layer().set_option(nagle);
+
+            wps->next_layer().handshake(ssl::stream_base::server);
+        }
+
+        assert(wps != nullptr);
+
+        T& ws = *wps;
 
         boost::beast::websocket::permessage_deflate opt;
 
@@ -181,12 +237,19 @@ server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socke
         }
     }
 
+    if(wps)
+    {
+        delete wps;
+        wps = nullptr;
+    }
+
     {
         std::lock_guard guard(conn.disconnected_lock);
         conn.disconnected_clients.push_back(id);
     }
 }
 
+template<typename T>
 void server_thread(connection& conn, std::string saddress, uint16_t port)
 {
     auto const address = boost::asio::ip::make_address(saddress);
@@ -204,7 +267,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 
         acceptor.accept(*socket);
 
-        std::thread(server_session, std::ref(conn), std::ref(*next_context), std::ref(*socket)).detach();
+        std::thread(server_session<T>, std::ref(conn), std::ref(*next_context), std::ref(*socket)).detach();
 
         sf::sleep(sf::milliseconds(1));;
     }
@@ -349,14 +412,22 @@ void client_thread(connection& conn, std::string address, uint16_t port)
     }
 }
 
-void connection::host(const std::string& address, uint16_t port)
+void connection::host(const std::string& address, uint16_t port, connection_type::type type)
 {
     thread_is_server = true;
 
-    thrd.emplace_back(server_thread, std::ref(*this), address, port);
+    if(type == connection_type::PLAIN)
+    {
+        thrd.emplace_back(server_thread<websocket::stream<tcp::socket>>, std::ref(*this), address, port);
+    }
+
+    if(type == connection_type::SSL)
+    {
+        thrd.emplace_back(server_thread<websocket::stream<ssl::stream<tcp::socket>>>, std::ref(*this), address, port);
+    }
 }
 
-void connection::connect(const std::string& address, uint16_t port)
+void connection::connect(const std::string& address, uint16_t port, connection_type::type type)
 {
     thread_is_client = true;
 
