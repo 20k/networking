@@ -1,5 +1,7 @@
 #include "networking.hpp"
 
+#define BOOST_BEAST_SEPARATE_COMPILATION
+
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
 #include <boost/asio/connect.hpp>
