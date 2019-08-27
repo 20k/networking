@@ -286,19 +286,6 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
         tcp::resolver resolver{ioc};
 
-        // These objects perform our I/O
-        /*
-        websocket::stream<tcp::socket> ws{ioc};
-
-        // Look up the domain name
-        auto const results = resolver.resolve(address, std::to_string(port));
-
-        // Make the connection on the IP address we get from a lookup
-        boost::asio::connect(ws.next_layer(), results.begin(), results.end());
-
-
-        ws.next_layer().set_option(nagle);*/
-
         auto const results = resolver.resolve(address, std::to_string(port));
 
         if constexpr(std::is_same_v<T, websocket::stream<tcp::socket>>)
