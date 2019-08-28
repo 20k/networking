@@ -307,17 +307,16 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
         if constexpr(std::is_same_v<T, websocket::stream<ssl::stream<tcp::socket>>>)
         {
-            ctx.set_options(boost::asio::ssl::context::default_workarounds |
+            /*ctx.set_options(boost::asio::ssl::context::default_workarounds |
                             boost::asio::ssl::context::no_sslv2 |
                             boost::asio::ssl::context::single_dh_use |
-                            boost::asio::ssl::context::no_sslv3);
+                            boost::asio::ssl::context::no_sslv3);*/
 
             wps = new T{ioc, ctx};
 
-            wps->next_layer().next_layer().set_option(nagle);
-
             boost::asio::connect(wps->next_layer().next_layer(), results.begin(), results.end());
 
+            wps->next_layer().next_layer().set_option(nagle);
             wps->next_layer().handshake(ssl::stream_base::client);
         }
 
