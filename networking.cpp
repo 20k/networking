@@ -307,24 +307,10 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
         if constexpr(std::is_same_v<T, websocket::stream<ssl::stream<tcp::socket>>>)
         {
-            static std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
-            static std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
-            static std::string key = read_file_bin("./deps/secret/cert/key.pem");
-
             ctx.set_options(boost::asio::ssl::context::default_workarounds |
                             boost::asio::ssl::context::no_sslv2 |
                             boost::asio::ssl::context::single_dh_use |
                             boost::asio::ssl::context::no_sslv3);
-
-            ctx.use_certificate_chain(
-                boost::asio::buffer(cert.data(), cert.size()));
-
-            ctx.use_private_key(
-                boost::asio::buffer(key.data(), key.size()),
-                boost::asio::ssl::context::file_format::pem);
-
-            ctx.use_tmp_dh(
-                boost::asio::buffer(dh.data(), dh.size()));
 
             wps = new T{ioc, ctx};
 
