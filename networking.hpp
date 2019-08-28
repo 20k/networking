@@ -110,6 +110,8 @@ struct connection
     std::mutex disconnected_lock;
     std::vector<uint64_t> disconnected_clients;
 
+    std::atomic_int client_connected_to_server{0};
+
 private:
     bool is_client = true;
     bool is_connected = false;

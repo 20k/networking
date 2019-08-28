@@ -41,11 +41,11 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
 {
     uint64_t id = -1;
     T* wps = nullptr;
+    ssl::context ctx{ssl::context::sslv23};
 
     try
     {
         boost::asio::ip::tcp::no_delay nagle(true);
-        ssl::context ctx{ssl::context::sslv23};
 
         if constexpr(std::is_same_v<T, websocket::stream<tcp::socket>>)
         {
@@ -284,12 +284,11 @@ template<typename T>
 void client_thread(connection& conn, std::string address, uint16_t port)
 {
     T* wps = nullptr;
+    boost::asio::io_context ioc;
+    ssl::context ctx{ssl::context::sslv23_client};
 
     try
     {
-        boost::asio::io_context ioc;
-        ssl::context ctx{ssl::context::sslv23_client};
-
         boost::asio::ip::tcp::no_delay nagle(true);
 
         tcp::resolver resolver{ioc};
@@ -362,6 +361,8 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
         std::vector<write_data>& read_queue = *read_queue_ptr;
         std::mutex& read_mutex = *read_mutex_ptr;
+
+        conn.client_connected_to_server = 1;
 
         while(1)
         {
@@ -449,11 +450,29 @@ void client_thread(connection& conn, std::string address, uint16_t port)
         std::cout << "exception in client write outer " << e.what() << std::endl;
     }
 
+    {
+        std::lock_guard guard(conn.mut);
+
+        {
+            std::lock_guard g2(conn.directed_write_lock[-1]);
+
+            conn.directed_write_queue.clear();
+        }
+
+        {
+            std::lock_guard g3(conn.fine_read_lock[-1]);
+
+            conn.fine_read_queue.clear();
+        }
+    }
+
     if(wps)
     {
         delete wps;
         wps = nullptr;
     }
+
+    conn.client_connected_to_server = 0;
 }
 
 void connection::host(const std::string& address, uint16_t port, connection_type::type type)
