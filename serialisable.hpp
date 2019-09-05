@@ -514,90 +514,90 @@ inline
 void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& in, const I& name, std::vector<T>* other)
 {
     constexpr bool is_owned = std::is_base_of_v<owned, std::remove_pointer_t<T>>;
+    T* fptr = nullptr;
 
-    /*for(int i=0; i < (int)in.size() && i < (int)other->size(); i++)
+    if(ctx.mode == serialise_mode::DISK)
     {
-        if(serialisable_is_equal(&in[i], &(*other)[i]))
-            continue;
-
-        do_serialise(ctx, data[name], in[i], std::to_string(i), &(*other)[i]);
-    }
-
-    for(int i=(int)other->size(); i < (int)in.size(); i++)
-    {
-        do_serialise(ctx, data[name], in[i], std::to_string(i), fptr);
-    }*/
-
-    if(ctx.encode)
-    {
-        ///think the problem is that we're skipping elements in the array which confuses everything
-        T* fptr = nullptr;
-
-        nlohmann::json& mname = data[name]["a"];
-        data[name]["c"] = in.size();
-
-        if(other && in.size() == other->size())
+        if(ctx.encode)
         {
+            nlohmann::json& mname = data[name];
+
             for(int i=0; i < (int)in.size(); i++)
             {
-                if(ctx.mode == serialise_mode::NETWORK)
-                    do_serialise(ctx, mname, in[i], std::to_string(i), &(*other)[i]);
-
-                if(ctx.mode == serialise_mode::DISK)
-                    do_serialise(ctx, mname, in[i], i, &(*other)[i]);
+                do_serialise(ctx, mname[i], in[i], i, fptr);
             }
         }
         else
         {
-            for(int i=0; i < (int)in.size(); i++)
-            {
-                if(ctx.mode == serialise_mode::NETWORK)
-                    do_serialise(ctx, mname, in[i], std::to_string(i), fptr);
-
-                if(ctx.mode == serialise_mode::DISK)
-                    do_serialise(ctx, mname, in[i], i, fptr);
-            }
-        }
-    }
-    else
-    {
-        if(!nlohmann_has_name(data, name))
-            return;
-
-        //if constexpr(!is_owned)
-        {
-            nlohmann::json& mname = data[name]["a"];
-            int num = data[name]["c"];
-
-            T* fptr = nullptr;
-
-            if(num < 0 || num >= 100000)
-                throw std::runtime_error("Num out of range");
+            int num = data[name].size();
+            nlohmann::json& mname = data[name];
 
             in.resize(num);
 
-            for(auto& i : mname.items())
+            for(int i=0; i < num; i++)
             {
-                int idx = std::stoi(i.key());
+                do_serialise(ctx, mname[i], in[i], i, fptr);
+            }
+        }
+    }
 
-                if(idx < 0 || idx >= (int)in.size())
-                    throw std::runtime_error("Bad");
+    if(ctx.mode == serialise_mode::NETWORK)
+    {
+        if(ctx.encode)
+        {
+            ///think the problem is that we're skipping elements in the array which confuses everything
 
-                if(other == nullptr || other->size() != (size_t)num)
+            nlohmann::json& mname = data[name]["a"];
+            data[name]["c"] = in.size();
+
+            if(other && in.size() == other->size())
+            {
+                for(int i=0; i < (int)in.size(); i++)
                 {
-                    if(ctx.mode == serialise_mode::NETWORK)
-                        do_serialise(ctx, mname, in[idx], std::to_string(idx), fptr);
+                    do_serialise(ctx, mname, in[i], std::to_string(i), &(*other)[i]);
 
-                    if(ctx.mode == serialise_mode::DISK)
-                        do_serialise(ctx, mname, in[idx], idx, fptr);
                 }
-                else
+            }
+            else
+            {
+                for(int i=0; i < (int)in.size(); i++)
                 {
-                    if(ctx.mode == serialise_mode::NETWORK)
-                        do_serialise(ctx, mname, in[idx], std::to_string(idx), &(*other)[idx]);
+                    do_serialise(ctx, mname, in[i], std::to_string(i), fptr);
+                }
+            }
+        }
+        else
+        {
+            if(!nlohmann_has_name(data, name))
+                return;
 
-                    if(ctx.mode == serialise_mode::DISK)
-                        do_serialise(ctx, mname, in[idx], idx, &(*other)[idx]);
+            //if constexpr(!is_owned)
+            {
+                nlohmann::json& mname = data[name]["a"];
+                int num = data[name]["c"];
+
+                T* fptr = nullptr;
+
+                if(num < 0 || num >= 100000)
+                    throw std::runtime_error("Num out of range");
+
+                in.resize(num);
+
+                for(auto& i : mname.items())
+                {
+                    int idx = std::stoi(i.key());
+
+                    if(idx < 0 || idx >= (int)in.size())
+                        throw std::runtime_error("Bad");
+
+                    if(other == nullptr || other->size() != (size_t)num)
+                    {
+                        do_serialise(ctx, mname, in[idx], std::to_string(idx), fptr);
+                    }
+                    else
+                    {
+                        do_serialise(ctx, mname, in[idx], std::to_string(idx), &(*other)[idx]);
+                    }
                 }
             }
         }
