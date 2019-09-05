@@ -595,6 +595,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
                 {
                     if(ctx.mode == serialise_mode::NETWORK)
                         do_serialise(ctx, mname, in[idx], std::to_string(idx), &(*other)[idx]);
+
                     if(ctx.mode == serialise_mode::DISK)
                         do_serialise(ctx, mname, in[idx], idx, &(*other)[idx]);
                 }
