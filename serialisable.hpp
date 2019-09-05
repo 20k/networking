@@ -524,7 +524,12 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
             for(int i=0; i < (int)in.size(); i++)
             {
-                do_serialise(ctx, mname[i], in[i], i, fptr);
+                do_serialise(ctx, mname, in[i], i, fptr);
+            }
+
+            if(in.size() == 0)
+            {
+                mname = nlohmann::json::array();
             }
         }
         else
@@ -536,7 +541,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
             for(int i=0; i < num; i++)
             {
-                do_serialise(ctx, mname[i], in[i], i, fptr);
+                do_serialise(ctx, mname, in[i], i, fptr);
             }
         }
     }
