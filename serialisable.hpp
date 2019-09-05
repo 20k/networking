@@ -494,42 +494,20 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::shared_ptr<
         do_serialise(ctx, data, *in, name, fptr);
 }
 
-/*template <typename T, typename Compare>
-std::vector<std::size_t> sort_permutation(
-    const std::vector<T>& vec,
-    Compare& compare)
+template<typename T, typename I, std::size_t N>
+inline
+void do_serialise(serialise_context& ctx, nlohmann::json& data, std::array<T, N>& in, const I& name, std::array<T, N>* other)
 {
-    std::vector<std::size_t> p(vec.size());
-    std::iota(p.begin(), p.end(), 0);
-    std::sort(p.begin(), p.end(),
-        [&](std::size_t i, std::size_t j){ return compare(vec[i], vec[j]); });
-    return p;
-}
+    T* fptr = nullptr;
 
-template <typename T>
-void apply_permutation_in_place(
-    std::vector<T>& vec,
-    const std::vector<std::size_t>& p)
-{
-    std::vector<bool> done(vec.size());
-    for (std::size_t i = 0; i < vec.size(); ++i)
+    for(int i=0; i < (int)N; i++)
     {
-        if (done[i])
-        {
-            continue;
-        }
-        done[i] = true;
-        std::size_t prev_j = i;
-        std::size_t j = p[i];
-        while (i != j)
-        {
-            std::swap(vec[prev_j], vec[j]);
-            done[j] = true;
-            prev_j = j;
-            j = p[j];
-        }
+        if(other)
+            do_serialise(ctx, data[name][i], in[i], i, &(*other)[i]);
+        else
+            do_serialise(ctx, data[name][i], in[i], i, fptr);
     }
-}*/
+}
 
 template<typename T, typename I>
 inline
@@ -1070,6 +1048,16 @@ void do_recurse(serialise_context& ctx, std::vector<T>& in)
     }
 }
 
+template<typename T, std::size_t N>
+inline
+void do_recurse(serialise_context& ctx, std::array<T, N>& in)
+{
+    for(auto& i : in)
+    {
+        do_recurse(ctx, i);
+    }
+}
+
 template<typename T, typename U>
 inline
 void do_recurse(serialise_context& ctx, std::map<T, U>& in)
@@ -1122,6 +1110,16 @@ void find_owned_id(serialise_context& ctx, T*& in)
 template<typename T>
 inline
 void find_owned_id(serialise_context& ctx, std::vector<T>& in)
+{
+    for(auto& i : in)
+    {
+        find_owned_id(ctx, i);
+    }
+}
+
+template<typename T, std::size_t N>
+inline
+void find_owned_id(serialise_context& ctx, std::array<T, N>& in)
 {
     for(auto& i : in)
     {
@@ -1447,6 +1445,20 @@ bool serialisable_is_eq_impl(serialise_context& ctx, std::vector<T>& one, std::v
 
     return true;
 }
+
+template<typename T, std::size_t N>
+inline
+bool serialisable_is_eq_impl(serialise_context& ctx, std::array<T, N>& one, std::array<T, N>& two)
+{
+    for(int i=0; i < (int)N; i++)
+    {
+        if(!serialisable_is_eq_impl(ctx, one[i], two[i]))
+            return false;
+    }
+
+    return true;
+}
+
 
 template<typename T>
 inline
