@@ -533,47 +533,31 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
         ///think the problem is that we're skipping elements in the array which confuses everything
         T* fptr = nullptr;
 
-        if(!is_owned)
-        {
-            nlohmann::json& mname = data[name]["a"];
-            data[name]["c"] = in.size();
+        nlohmann::json& mname = data[name]["a"];
+        data[name]["c"] = in.size();
 
-            if(other && in.size() == other->size())
+        if(other && in.size() == other->size())
+        {
+            for(int i=0; i < (int)in.size(); i++)
             {
-                for(int i=0; i < (int)in.size(); i++)
-                {
+                if(ctx.mode == serialise_mode::NETWORK)
                     do_serialise(ctx, mname, in[i], std::to_string(i), &(*other)[i]);
-                }
-            }
-            else
-            {
-                for(int i=0; i < (int)in.size(); i++)
-                {
-                    do_serialise(ctx, mname, in[i], std::to_string(i), fptr);
-                }
+
+                if(ctx.mode == serialise_mode::DISK)
+                    do_serialise(ctx, mname, in[i], i, &(*other)[i]);
             }
         }
         else
         {
-            nlohmann::json& mname = data[name]["a"];
-            data[name]["c"] = in.size();
-
-            if(other && in.size() == other->size())
+            for(int i=0; i < (int)in.size(); i++)
             {
-                for(int i=0; i < (int)in.size(); i++)
-                {
-                    do_serialise(ctx, mname, in[i], std::to_string(i), &(*other)[i]);
-                }
-            }
-            else
-            {
-                for(int i=0; i < (int)in.size(); i++)
-                {
+                if(ctx.mode == serialise_mode::NETWORK)
                     do_serialise(ctx, mname, in[i], std::to_string(i), fptr);
-                }
+
+                if(ctx.mode == serialise_mode::DISK)
+                    do_serialise(ctx, mname, in[i], i, fptr);
             }
         }
-
     }
     else
     {
@@ -586,30 +570,6 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
             int num = data[name]["c"];
 
             T* fptr = nullptr;
-
-            /*int num = mname.size();
-
-            if(num < 0 || num >= 100000)
-                throw std::runtime_error("Num out of range");
-
-            in.resize(num);
-
-            if(other == nullptr || other->size() != (size_t)num)
-            {
-                for(int i=0; i < num; i++)
-                {
-                    do_serialise(ctx, mname, in[i], i, fptr);
-                }
-            }
-            else
-            {
-                for(int i=0; i < num; i++)
-                {
-                    do_serialise(ctx, mname, in[i], i, &(*other)[i]);
-                }
-            }*/
-
-            //int num = mname.size();
 
             if(num < 0 || num >= 100000)
                 throw std::runtime_error("Num out of range");
@@ -625,154 +585,21 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
                 if(other == nullptr || other->size() != (size_t)num)
                 {
-                    do_serialise(ctx, mname, in[idx], std::to_string(idx), fptr);
+                    if(ctx.mode == serialise_mode::NETWORK)
+                        do_serialise(ctx, mname, in[idx], std::to_string(idx), fptr);
+
+                    if(ctx.mode == serialise_mode::DISK)
+                        do_serialise(ctx, mname, in[idx], idx, fptr);
                 }
                 else
                 {
-                    do_serialise(ctx, mname, in[idx], std::to_string(idx), &(*other)[idx]);
+                    if(ctx.mode == serialise_mode::NETWORK)
+                        do_serialise(ctx, mname, in[idx], std::to_string(idx), &(*other)[idx]);
+                    if(ctx.mode == serialise_mode::DISK)
+                        do_serialise(ctx, mname, in[idx], idx, &(*other)[idx]);
                 }
-
-                /*if constexpr(is_owned)
-                {
-                    if constexpr(std::is_pointer_v<T>)
-                        in[idx]->_pid = mname[std::to_string(idx)][PID_STRING];
-                    if constexpr(!std::is_pointer_v<T>)
-                        in[idx]._pid = mname[std::to_string(idx)][PID_STRING];
-                }*/
             }
         }
-
-        /*if constexpr(is_owned)
-        {
-            nlohmann::json& mname = data[name]["a"];
-            int num = data[name]["c"];
-
-            using mtype = std::remove_pointer_t<T>;
-            mtype* nptr = nullptr;
-
-            std::map<size_t, mtype*> old_element_map;
-
-            for(auto& i : in)
-            {
-                if constexpr(!std::is_pointer_v<T>)
-                    old_element_map[i._pid] = &i;
-
-                if constexpr(std::is_pointer_v<T>)
-                    old_element_map[i->_pid] = i;
-            }
-
-            int resize_extra = 0;
-
-            std::vector<size_t> unprocessed_indices;
-
-            //int num = mname.size();
-
-            std::map<size_t, size_t> pid_to_index;
-
-            for(int i=0; i < num; i++)
-            {
-                size_t pid = mname[i][PID_STRING];
-
-                pid_to_index[pid] = i;
-
-                if(old_element_map.find(pid) == old_element_map.end())
-                {
-                    unprocessed_indices.push_back(i);
-                    resize_extra++;
-                }
-            }
-
-            in.erase( std::remove_if(in.begin(), in.end(), [&](const T& my_val)
-            {
-                if constexpr(!std::is_pointer_v<T>)
-                    return pid_to_index.find(my_val._pid) == pid_to_index.end();
-                if constexpr(std::is_pointer_v<T>)
-                    return pid_to_index.find(my_val->_pid) == pid_to_index.end();
-            }),
-            in.end());
-
-            size_t old_size = in.size();
-
-            in.resize(old_size + resize_extra);
-
-            ///problem is we're serialising into old vector instead of new, ordering problems
-            for(size_t i=0; i < old_size; i++)
-            {
-                mtype* elem_ptr = nullptr;
-
-                if constexpr(!std::is_pointer_v<T>)
-                    elem_ptr = &in[i];
-
-                if constexpr(std::is_pointer_v<T>)
-                    elem_ptr = in[i];
-
-                size_t real_index = pid_to_index[elem_ptr->_pid];
-
-                ///our pid used to exist in the last iteration
-                if(other == nullptr || other->size() != in.size())
-                    do_serialise(ctx, mname, *elem_ptr, real_index, nptr);
-                else
-                {
-                    mtype* other_val = nullptr;
-
-                    if constexpr(!std::is_pointer_v<T>)
-                        other_val = &((*other)[real_index]);
-
-                    if constexpr(std::is_pointer_v<T>)
-                        other_val = ((*other)[real_index]);
-
-                    do_serialise(ctx, mname, *elem_ptr, real_index, other_val);
-                }
-            }
-
-
-            for(size_t i=old_size; i < in.size(); i++)
-            {
-                int idx = i - old_size;
-
-                //assert(idx < (int)unprocessed_indices.size());
-
-                int real_index = unprocessed_indices[idx];
-
-                size_t pid = mname[real_index][PID_STRING];
-
-                mtype* elem_ptr = nullptr;
-
-                if constexpr(!std::is_pointer_v<T>)
-                {
-                    elem_ptr = &in[i];
-                }
-
-                if constexpr(std::is_pointer_v<T>)
-                {
-                    in[i] = new mtype();
-                    elem_ptr = in[i];
-                }
-
-                elem_ptr->_pid = pid;
-
-                do_serialise(ctx, mname, *elem_ptr, real_index, nptr);
-            }
-
-            std::sort(in.begin(), in.end(), [&](auto& i1, auto& i2)
-            {
-                size_t pid1, pid2;
-
-                if constexpr(!std::is_pointer_v<T>)
-                {
-                    pid1 = i1._pid;
-                    pid2 = i2._pid;
-                }
-
-                if constexpr(std::is_pointer_v<T>)
-                {
-                    pid1 = i1->_pid;
-                    pid2 = i2->_pid;
-                }
-
-                return pid_to_index[pid1] < pid_to_index[pid2];
-            });
-        }*/
     }
 }
 
