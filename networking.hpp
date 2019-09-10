@@ -111,6 +111,9 @@ struct connection
     std::vector<uint64_t> disconnected_clients;
 
     std::atomic_int client_connected_to_server{0};
+    std::atomic_bool should_terminate{false};
+
+    ~connection(){should_terminate = true; for(auto& i : thrd){i.join();}}
 
 private:
     bool is_client = true;

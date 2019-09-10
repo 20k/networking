@@ -217,6 +217,9 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
             }
 
             sf::sleep(sf::milliseconds(1));
+
+            if(conn.should_terminate)
+                break;
         }
     }
     catch(boost::system::system_error const& se)
@@ -443,6 +446,9 @@ void client_thread(connection& conn, std::string address, uint16_t port)
             }
 
             sf::sleep(sf::milliseconds(1));
+
+            if(conn.should_terminate)
+                break;
         }
     }
     catch(std::exception& e)
