@@ -20,14 +20,14 @@ nlohmann::json& nlohmann_index(nlohmann::json& data, const std::string& name)
 
 nlohmann::json& nlohmann_index(nlohmann::json& data, int name)
 {
-    if(data[name].size() < name)
+    if((int)data[name].size() < name)
     {
         //data.resize(name);
 
         if(!data[name].is_array())
             throw std::runtime_error("Expected array");
 
-        while(data[name].size() < name)
+        while((int)data[name].size() < name)
             data[name].push_back(nlohmann::json());
     }
 

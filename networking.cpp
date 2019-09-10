@@ -212,7 +212,7 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
             }
             catch(...)
             {
-                std::cout << "exception\n";
+                std::cout << "Server Thread Exception\n";
                 break;
             }
 

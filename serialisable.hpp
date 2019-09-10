@@ -494,69 +494,64 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::shared_ptr<
         do_serialise(ctx, data, *in, name, fptr);
 }
 
-/*template <typename T, typename Compare>
-std::vector<std::size_t> sort_permutation(
-    const std::vector<T>& vec,
-    Compare& compare)
+template<typename T, typename I, std::size_t N>
+inline
+void do_serialise(serialise_context& ctx, nlohmann::json& data, std::array<T, N>& in, const I& name, std::array<T, N>* other)
 {
-    std::vector<std::size_t> p(vec.size());
-    std::iota(p.begin(), p.end(), 0);
-    std::sort(p.begin(), p.end(),
-        [&](std::size_t i, std::size_t j){ return compare(vec[i], vec[j]); });
-    return p;
-}
+    T* fptr = nullptr;
 
-template <typename T>
-void apply_permutation_in_place(
-    std::vector<T>& vec,
-    const std::vector<std::size_t>& p)
-{
-    std::vector<bool> done(vec.size());
-    for (std::size_t i = 0; i < vec.size(); ++i)
+    for(int i=0; i < (int)N; i++)
     {
-        if (done[i])
-        {
-            continue;
-        }
-        done[i] = true;
-        std::size_t prev_j = i;
-        std::size_t j = p[i];
-        while (i != j)
-        {
-            std::swap(vec[prev_j], vec[j]);
-            done[j] = true;
-            prev_j = j;
-            j = p[j];
-        }
+        if(other)
+            do_serialise(ctx, data[name][i], in[i], i, &(*other)[i]);
+        else
+            do_serialise(ctx, data[name][i], in[i], i, fptr);
     }
-}*/
+}
 
 template<typename T, typename I>
 inline
 void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& in, const I& name, std::vector<T>* other)
 {
     constexpr bool is_owned = std::is_base_of_v<owned, std::remove_pointer_t<T>>;
+    T* fptr = nullptr;
 
-    /*for(int i=0; i < (int)in.size() && i < (int)other->size(); i++)
+    if(ctx.mode == serialise_mode::DISK)
     {
-        if(serialisable_is_equal(&in[i], &(*other)[i]))
-            continue;
+        if(ctx.encode)
+        {
+            nlohmann::json& mname = data[name];
 
-        do_serialise(ctx, data[name], in[i], std::to_string(i), &(*other)[i]);
+            for(int i=0; i < (int)in.size(); i++)
+            {
+                do_serialise(ctx, mname, in[i], i, fptr);
+            }
+
+            if(in.size() == 0)
+            {
+                mname = nlohmann::json::array();
+            }
+        }
+        else
+        {
+            int num = data[name].size();
+            nlohmann::json& mname = data[name];
+
+            in.resize(num);
+
+            for(int i=0; i < num; i++)
+            {
+                do_serialise(ctx, mname, in[i], i, fptr);
+            }
+        }
     }
 
-    for(int i=(int)other->size(); i < (int)in.size(); i++)
+    if(ctx.mode == serialise_mode::NETWORK)
     {
-        do_serialise(ctx, data[name], in[i], std::to_string(i), fptr);
-    }*/
-
-    if(ctx.encode)
-    {
-        ///think the problem is that we're skipping elements in the array which confuses everything
-        T* fptr = nullptr;
-
-        if(!is_owned)
+        if(ctx.encode)
         {
+            ///think the problem is that we're skipping elements in the array which confuses everything
+
             nlohmann::json& mname = data[name]["a"];
             data[name]["c"] = in.size();
 
@@ -565,6 +560,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
                 for(int i=0; i < (int)in.size(); i++)
                 {
                     do_serialise(ctx, mname, in[i], std::to_string(i), &(*other)[i]);
+
                 }
             }
             else
@@ -577,224 +573,39 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
         }
         else
         {
-            nlohmann::json& mname = data[name]["a"];
-            data[name]["c"] = in.size();
+            if(!nlohmann_has_name(data, name))
+                return;
 
-            if(other && in.size() == other->size())
+            //if constexpr(!is_owned)
             {
-                for(int i=0; i < (int)in.size(); i++)
+                nlohmann::json& mname = data[name]["a"];
+                int num = data[name]["c"];
+
+                T* fptr = nullptr;
+
+                if(num < 0 || num >= 100000)
+                    throw std::runtime_error("Num out of range");
+
+                in.resize(num);
+
+                for(auto& i : mname.items())
                 {
-                    do_serialise(ctx, mname, in[i], std::to_string(i), &(*other)[i]);
+                    int idx = std::stoi(i.key());
+
+                    if(idx < 0 || idx >= (int)in.size())
+                        throw std::runtime_error("Bad");
+
+                    if(other == nullptr || other->size() != (size_t)num)
+                    {
+                        do_serialise(ctx, mname, in[idx], std::to_string(idx), fptr);
+                    }
+                    else
+                    {
+                        do_serialise(ctx, mname, in[idx], std::to_string(idx), &(*other)[idx]);
+                    }
                 }
-            }
-            else
-            {
-                for(int i=0; i < (int)in.size(); i++)
-                {
-                    do_serialise(ctx, mname, in[i], std::to_string(i), fptr);
-                }
-            }
-        }
-
-    }
-    else
-    {
-        if(!nlohmann_has_name(data, name))
-            return;
-
-        //if constexpr(!is_owned)
-        {
-            nlohmann::json& mname = data[name]["a"];
-            int num = data[name]["c"];
-
-            T* fptr = nullptr;
-
-            /*int num = mname.size();
-
-            if(num < 0 || num >= 100000)
-                throw std::runtime_error("Num out of range");
-
-            in.resize(num);
-
-            if(other == nullptr || other->size() != (size_t)num)
-            {
-                for(int i=0; i < num; i++)
-                {
-                    do_serialise(ctx, mname, in[i], i, fptr);
-                }
-            }
-            else
-            {
-                for(int i=0; i < num; i++)
-                {
-                    do_serialise(ctx, mname, in[i], i, &(*other)[i]);
-                }
-            }*/
-
-            //int num = mname.size();
-
-            if(num < 0 || num >= 100000)
-                throw std::runtime_error("Num out of range");
-
-            in.resize(num);
-
-            for(auto& i : mname.items())
-            {
-                int idx = std::stoi(i.key());
-
-                if(idx < 0 || idx >= (int)in.size())
-                    throw std::runtime_error("Bad");
-
-                if(other == nullptr || other->size() != (size_t)num)
-                {
-                    do_serialise(ctx, mname, in[idx], std::to_string(idx), fptr);
-                }
-                else
-                {
-                    do_serialise(ctx, mname, in[idx], std::to_string(idx), &(*other)[idx]);
-                }
-
-                /*if constexpr(is_owned)
-                {
-                    if constexpr(std::is_pointer_v<T>)
-                        in[idx]->_pid = mname[std::to_string(idx)][PID_STRING];
-                    if constexpr(!std::is_pointer_v<T>)
-                        in[idx]._pid = mname[std::to_string(idx)][PID_STRING];
-                }*/
             }
         }
-
-        /*if constexpr(is_owned)
-        {
-            nlohmann::json& mname = data[name]["a"];
-            int num = data[name]["c"];
-
-            using mtype = std::remove_pointer_t<T>;
-            mtype* nptr = nullptr;
-
-            std::map<size_t, mtype*> old_element_map;
-
-            for(auto& i : in)
-            {
-                if constexpr(!std::is_pointer_v<T>)
-                    old_element_map[i._pid] = &i;
-
-                if constexpr(std::is_pointer_v<T>)
-                    old_element_map[i->_pid] = i;
-            }
-
-            int resize_extra = 0;
-
-            std::vector<size_t> unprocessed_indices;
-
-            //int num = mname.size();
-
-            std::map<size_t, size_t> pid_to_index;
-
-            for(int i=0; i < num; i++)
-            {
-                size_t pid = mname[i][PID_STRING];
-
-                pid_to_index[pid] = i;
-
-                if(old_element_map.find(pid) == old_element_map.end())
-                {
-                    unprocessed_indices.push_back(i);
-                    resize_extra++;
-                }
-            }
-
-            in.erase( std::remove_if(in.begin(), in.end(), [&](const T& my_val)
-            {
-                if constexpr(!std::is_pointer_v<T>)
-                    return pid_to_index.find(my_val._pid) == pid_to_index.end();
-                if constexpr(std::is_pointer_v<T>)
-                    return pid_to_index.find(my_val->_pid) == pid_to_index.end();
-            }),
-            in.end());
-
-            size_t old_size = in.size();
-
-            in.resize(old_size + resize_extra);
-
-            ///problem is we're serialising into old vector instead of new, ordering problems
-            for(size_t i=0; i < old_size; i++)
-            {
-                mtype* elem_ptr = nullptr;
-
-                if constexpr(!std::is_pointer_v<T>)
-                    elem_ptr = &in[i];
-
-                if constexpr(std::is_pointer_v<T>)
-                    elem_ptr = in[i];
-
-                size_t real_index = pid_to_index[elem_ptr->_pid];
-
-                ///our pid used to exist in the last iteration
-                if(other == nullptr || other->size() != in.size())
-                    do_serialise(ctx, mname, *elem_ptr, real_index, nptr);
-                else
-                {
-                    mtype* other_val = nullptr;
-
-                    if constexpr(!std::is_pointer_v<T>)
-                        other_val = &((*other)[real_index]);
-
-                    if constexpr(std::is_pointer_v<T>)
-                        other_val = ((*other)[real_index]);
-
-                    do_serialise(ctx, mname, *elem_ptr, real_index, other_val);
-                }
-            }
-
-
-            for(size_t i=old_size; i < in.size(); i++)
-            {
-                int idx = i - old_size;
-
-                //assert(idx < (int)unprocessed_indices.size());
-
-                int real_index = unprocessed_indices[idx];
-
-                size_t pid = mname[real_index][PID_STRING];
-
-                mtype* elem_ptr = nullptr;
-
-                if constexpr(!std::is_pointer_v<T>)
-                {
-                    elem_ptr = &in[i];
-                }
-
-                if constexpr(std::is_pointer_v<T>)
-                {
-                    in[i] = new mtype();
-                    elem_ptr = in[i];
-                }
-
-                elem_ptr->_pid = pid;
-
-                do_serialise(ctx, mname, *elem_ptr, real_index, nptr);
-            }
-
-            std::sort(in.begin(), in.end(), [&](auto& i1, auto& i2)
-            {
-                size_t pid1, pid2;
-
-                if constexpr(!std::is_pointer_v<T>)
-                {
-                    pid1 = i1._pid;
-                    pid2 = i2._pid;
-                }
-
-                if constexpr(std::is_pointer_v<T>)
-                {
-                    pid1 = i1->_pid;
-                    pid2 = i2->_pid;
-                }
-
-                return pid_to_index[pid1] < pid_to_index[pid2];
-            });
-        }*/
     }
 }
 
@@ -1070,6 +881,16 @@ void do_recurse(serialise_context& ctx, std::vector<T>& in)
     }
 }
 
+template<typename T, std::size_t N>
+inline
+void do_recurse(serialise_context& ctx, std::array<T, N>& in)
+{
+    for(auto& i : in)
+    {
+        do_recurse(ctx, i);
+    }
+}
+
 template<typename T, typename U>
 inline
 void do_recurse(serialise_context& ctx, std::map<T, U>& in)
@@ -1122,6 +943,16 @@ void find_owned_id(serialise_context& ctx, T*& in)
 template<typename T>
 inline
 void find_owned_id(serialise_context& ctx, std::vector<T>& in)
+{
+    for(auto& i : in)
+    {
+        find_owned_id(ctx, i);
+    }
+}
+
+template<typename T, std::size_t N>
+inline
+void find_owned_id(serialise_context& ctx, std::array<T, N>& in)
 {
     for(auto& i : in)
     {
@@ -1447,6 +1278,20 @@ bool serialisable_is_eq_impl(serialise_context& ctx, std::vector<T>& one, std::v
 
     return true;
 }
+
+template<typename T, std::size_t N>
+inline
+bool serialisable_is_eq_impl(serialise_context& ctx, std::array<T, N>& one, std::array<T, N>& two)
+{
+    for(int i=0; i < (int)N; i++)
+    {
+        if(!serialisable_is_eq_impl(ctx, one[i], two[i]))
+            return false;
+    }
+
+    return true;
+}
+
 
 template<typename T>
 inline
