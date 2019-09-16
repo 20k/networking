@@ -513,7 +513,7 @@ template<typename T, typename I>
 inline
 void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& in, const I& name, std::vector<T>* other)
 {
-    constexpr bool is_owned = std::is_base_of_v<owned, std::remove_pointer_t<T>>;
+    //constexpr bool is_owned = std::is_base_of_v<owned, std::remove_pointer_t<T>>;
     T* fptr = nullptr;
 
     if(ctx.mode == serialise_mode::DISK)
