@@ -19,7 +19,13 @@
 #include <SFML/System/Sleep.hpp>
 #include <fstream>
 
-inline
+using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
+namespace websocket = boost::beast::websocket;  // from <boost/beast/websocket.hpp>
+namespace ssl = boost::asio::ssl;               // from <boost/asio/ssl.hpp>
+
+namespace
+{
+
 std::string read_file_bin(const std::string& file)
 {
     std::ifstream t(file, std::ios::binary);
@@ -31,10 +37,6 @@ std::string read_file_bin(const std::string& file)
 
     return str;
 }
-
-using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
-namespace websocket = boost::beast::websocket;  // from <boost/beast/websocket.hpp>
-namespace ssl = boost::asio::ssl;               // from <boost/asio/ssl.hpp>
 
 template<typename T>
 void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socket& socket)
@@ -479,6 +481,7 @@ void client_thread(connection& conn, std::string address, uint16_t port)
     }
 
     conn.client_connected_to_server = 0;
+}
 }
 
 void connection::host(const std::string& address, uint16_t port, connection_type::type type)
