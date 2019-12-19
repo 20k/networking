@@ -1,5 +1,20 @@
 #include "networking.hpp"
 
+#ifdef __EMSCRIPTEN__
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <iostream>
+#endif // __EMSCRIPTEN__
+
+#ifndef __EMSCRIPTEN__
 #define BOOST_BEAST_SEPARATE_COMPILATION
 
 #include <boost/beast/core.hpp>
@@ -483,7 +498,188 @@ void client_thread(connection& conn, std::string address, uint16_t port)
     conn.client_connected_to_server = 0;
 }
 }
+#endif // __EMSCRIPTEN__
 
+#ifdef __EMSCRIPTEN__
+namespace
+{
+
+bool sock_readable(int fd)
+{
+    fd_set fds;
+    struct timeval tmo;
+
+    tmo.tv_sec=0;
+    tmo.tv_usec=0;
+
+    FD_ZERO(&fds);
+    FD_SET((uint32_t)fd, &fds);
+
+    select(fd+1, &fds, NULL, NULL, &tmo);
+
+    return FD_ISSET((uint32_t)fd, &fds);
+}
+
+bool sock_writable(int fd, long seconds = 0, long milliseconds = 0)
+{
+    fd_set fds;
+    struct timeval tmo;
+
+    tmo.tv_sec=seconds;
+    tmo.tv_usec=milliseconds;
+
+    FD_ZERO(&fds);
+    FD_SET((uint32_t)fd, &fds);
+
+    select(fd+1, NULL, &fds, NULL, &tmo);
+
+    return FD_ISSET((uint32_t)fd, &fds);
+}
+
+void client_thread_tcp(connection& conn, std::string address, uint16_t port)
+{
+    int sock = -1;
+
+    try
+    {
+        sockaddr_in addr = {};
+
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+        inet_pton(AF_INET, address.c_str(), &addr.sin_addr);
+
+        sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+        if(sock == -1)
+        {
+            printf("Socket error, server down? %i\n", sock);
+            return;
+        }
+
+        fcntl(sock, F_SETFL, O_NONBLOCK);
+
+        int connect_err = connect(sock, (sockaddr*)&addr, sizeof(addr));
+
+        if(connect_err < 0 && errno != EINPROGRESS)
+        {
+            printf("Socket error, server down (2) %i\n", connect_err);
+            return;
+        }
+
+        std::vector<write_data>* write_queue_ptr = nullptr;
+        std::mutex* write_mutex_ptr = nullptr;
+
+        std::vector<write_data>* read_queue_ptr = nullptr;
+        std::mutex* read_mutex_ptr = nullptr;
+
+        {
+            std::lock_guard guard(conn.mut);
+
+            write_queue_ptr = &conn.directed_write_queue[-1];
+            write_mutex_ptr = &conn.directed_write_lock[-1];
+
+            read_queue_ptr = &conn.fine_read_queue[-1];
+            read_mutex_ptr = &conn.fine_read_lock[-1];
+        }
+
+        std::vector<write_data>& write_queue = *write_queue_ptr;
+        std::mutex& write_mutex = *write_mutex_ptr;
+
+        std::vector<write_data>& read_queue = *read_queue_ptr;
+        std::mutex& read_mutex = *read_mutex_ptr;
+
+        conn.client_connected_to_server = 1;
+
+        constexpr int MAXDATASIZE = 100000;
+        char buf[MAXDATASIZE] = {};
+
+        while(1)
+        {
+            {
+                std::lock_guard guard(write_mutex);
+
+                while(write_queue.size() > 0 && sock_writable(sock))
+                {
+                    write_data& next = write_queue.front();
+
+                    std::string& to_send = next.data;
+
+                    int num = send(sock, to_send.data(), to_send.size(), 0);
+
+                    if(num < 0)
+                        throw std::runtime_error("Broken write");
+
+                    if(num == to_send.size())
+                    {
+                        write_queue.erase(write_queue.begin());
+                        continue;
+                    }
+
+                    if(num < to_send.size())
+                    {
+                        to_send = std::string(to_send.begin() + num, to_send.end());
+                        break;
+                    }
+                }
+            }
+
+            {
+                while(sock_readable(sock))
+                {
+                    int num = -1;
+
+                    if((num = recv(sock, buf, MAXDATASIZE-1, 0)) == -1)
+                    {
+                        throw std::runtime_error("SOCK BROKEN");
+                    }
+
+                    buf[num] = '\0';
+
+                    std::string ret(buf, buf + num);
+
+                    std::lock_guard guard(read_mutex);
+
+                    write_data ndata;
+                    ndata.data = std::move(ret);
+                    ndata.id = -1;
+
+                    read_queue.push_back(ndata);
+                }
+            }
+        }
+
+    }
+    catch(std::exception& e)
+    {
+        std::cout << "exception in emscripten tcp write " << e.what() << std::endl;
+    }
+
+    if(sock)
+        close(sock);
+
+
+    {
+        std::lock_guard guard(conn.mut);
+
+        {
+            std::lock_guard g2(conn.directed_write_lock[-1]);
+
+            conn.directed_write_queue.clear();
+        }
+
+        {
+            std::lock_guard g3(conn.fine_read_lock[-1]);
+
+            conn.fine_read_queue.clear();
+        }
+    }
+
+    conn.client_connected_to_server = 0;
+}
+}
+#endif // __EMSCRIPTEN__
+
+#ifndef __EMSCRIPTEN__
 void connection::host(const std::string& address, uint16_t port, connection_type::type type)
 {
     thread_is_server = true;
@@ -494,16 +690,25 @@ void connection::host(const std::string& address, uint16_t port, connection_type
     if(type == connection_type::SSL)
         thrd.emplace_back(server_thread<websocket::stream<ssl::stream<tcp::socket>>>, std::ref(*this), address, port);
 }
+#endif // __EMSCRIPTEN__
 
 void connection::connect(const std::string& address, uint16_t port, connection_type::type type)
 {
     thread_is_client = true;
 
+    #ifndef __EMSCRIPTEN__
     if(type == connection_type::PLAIN)
         thrd.emplace_back(client_thread<websocket::stream<tcp::socket>>, std::ref(*this), address, port);
 
     if(type == connection_type::SSL)
         thrd.emplace_back(client_thread<websocket::stream<ssl::stream<tcp::socket>>>, std::ref(*this), address, port);
+    #else
+    if(type != connection_type::PLAIN)
+        throw std::runtime_error("So, not sure this is possible");
+
+    thrd.emplace_back(client_thread_tcp, std::ref(*this), address, port);
+
+    #endif
 }
 
 void connection::write(const std::string& data)
