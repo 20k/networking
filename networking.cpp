@@ -593,11 +593,11 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
 
                 fd_set sockets;
                 FD_ZERO(&sockets);
-                FD_SET(_data->socket, &sockets);
+                FD_SET((uint32_t)sock, &sockets);
 
                 /* You should probably do other work instead of busy waiting on this...
                    or set a timeout or something */
-                while(select(_data->socket + 1, nullptr, &sockets, nullptr, nullptr) <= 0) {}
+                while(select((uint32_t)sock + 1, nullptr, &sockets, nullptr, nullptr) <= 0) {}
             }
             else
             {
