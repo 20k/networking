@@ -64,6 +64,16 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
     {
         boost::asio::ip::tcp::no_delay nagle(true);
 
+        /*boost::beast::flat_buffer buffer;
+
+        boost::beast::http::request<boost::beast::http::string_body> req;
+        boost::beast::http::read(socket, buffer, req);
+
+        if(!websocket::is_upgrade(req))
+            throw std::runtime_error("Tried to send http request");
+
+        std::cout << boost::beast::buffers_to_string(buffer.data()) << std::endl;*/
+
         if constexpr(std::is_same_v<T, websocket::stream<tcp::socket>>)
         {
             wps = new T{std::move(socket)};
@@ -176,7 +186,7 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
                         ws.async_write(wbuffer.data(), [&](boost::system::error_code ec, std::size_t)
                                        {
                                             if(ec.failed())
-                                                throw std::runtime_error("Write err\n");
+                                                throw std::runtime_error(std::string("Write err ") + ec.message() + "\n");
 
                                             async_write = false;
                                             should_continue = true;
@@ -193,7 +203,7 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
                     ws.async_read(rbuffer, [&](boost::system::error_code ec, std::size_t)
                                   {
                                       if(ec.failed())
-                                          throw std::runtime_error("Read err\n");
+                                          throw std::runtime_error(std::string("Read err ") + ec.message() + "\n");
 
                                       std::string next = boost::beast::buffers_to_string(rbuffer.data());
 
@@ -227,6 +237,10 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
                     continue;
                 }
             }
+            catch(std::runtime_error& e)
+            {
+                std::cout << "Server Thread Exception: " << e.what() << std::endl;
+            }
             catch(...)
             {
                 std::cout << "Server Thread Exception\n";
@@ -236,7 +250,10 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
             sf::sleep(sf::milliseconds(1));
 
             if(conn.should_terminate)
+            {
+                printf("Terminated thread\n");
                 break;
+            }
         }
     }
     catch(boost::system::system_error const& se)
@@ -568,10 +585,25 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
 
         int connect_err = connect(sock, (sockaddr*)&addr, sizeof(addr));
 
-        if(connect_err < 0 && errno != EINPROGRESS)
+        if(connect_err == -1)
         {
-            printf("Socket error, server down (2) %i\n", connect_err);
-            return;
+            if(errno == EINPROGRESS)
+            {
+                printf("INPROGRESS\n");
+
+                fd_set sockets;
+                FD_ZERO(&sockets);
+                FD_SET(_data->socket, &sockets);
+
+                /* You should probably do other work instead of busy waiting on this...
+                   or set a timeout or something */
+                while(select(_data->socket + 1, nullptr, &sockets, nullptr, nullptr) <= 0) {}
+            }
+            else
+            {
+                printf("Socket error, server down (2) %i\n", connect_err);
+                return;
+            }
         }
 
         std::vector<write_data>* write_queue_ptr = nullptr;
