@@ -538,6 +538,8 @@ bool sock_writable(int fd, long seconds = 0, long milliseconds = 0)
 
 void client_thread_tcp(connection& conn, std::string address, uint16_t port)
 {
+    printf("In thread?\n");
+
     int sock = -1;
 
     try
@@ -546,7 +548,12 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
 
         addr.sin_family = AF_INET;
         addr.sin_port = htons(port);
+
+        printf("Pre inet\n");
+
         inet_pton(AF_INET, address.c_str(), &addr.sin_addr);
+
+        printf("Post inet\n");
 
         sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -703,11 +710,17 @@ void connection::connect(const std::string& address, uint16_t port, connection_t
     if(type == connection_type::SSL)
         thrd.emplace_back(client_thread<websocket::stream<ssl::stream<tcp::socket>>>, std::ref(*this), address, port);
     #else
+
+    printf("In connect\n");
+
     if(type != connection_type::PLAIN)
         throw std::runtime_error("So, not sure this is possible");
 
+    printf("Pre emplace\n");
+
     thrd.emplace_back(client_thread_tcp, std::ref(*this), address, port);
 
+    printf("Post emplace\n");
     #endif
 }
 
