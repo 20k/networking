@@ -67,6 +67,7 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
         if constexpr(std::is_same_v<T, websocket::stream<tcp::socket>>)
         {
             wps = new T{std::move(socket)};
+            wps->text(false);
 
             wps->next_layer().set_option(nagle);
         }
@@ -93,6 +94,7 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
                 boost::asio::buffer(dh.data(), dh.size()));
 
             wps = new T{std::move(socket), ctx};
+            wps->text(false);
 
             wps->next_layer().next_layer().set_option(nagle);
 
@@ -107,8 +109,6 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
 
         opt.server_enable = true;
         ws.set_option(opt);
-
-        ws.text(false);
 
         ws.accept();
 
@@ -318,6 +318,7 @@ void client_thread(connection& conn, std::string address, uint16_t port)
         if constexpr(std::is_same_v<T, websocket::stream<tcp::socket>>)
         {
             wps = new T{ioc};
+            wps->text(false);
 
             wps->next_layer().set_option(nagle);
 
@@ -332,6 +333,7 @@ void client_thread(connection& conn, std::string address, uint16_t port)
                             boost::asio::ssl::context::no_sslv3);*/
 
             wps = new T{ioc, ctx};
+            wps->text(false);
 
             boost::asio::connect(wps->next_layer().next_layer(), results.begin(), results.end());
 
@@ -350,7 +352,6 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
         ws.handshake(address, "/");
 
-        ws.text(false);
 
         boost::beast::multi_buffer rbuffer;
         boost::beast::multi_buffer wbuffer;
