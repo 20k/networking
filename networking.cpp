@@ -13,6 +13,7 @@
 #include <sys/ioctl.h>
 #include <iostream>
 #include <toolkit/clock.hpp>
+#include <netinet/tcp.h>
 #endif // __EMSCRIPTEN__
 
 #ifndef __EMSCRIPTEN__
@@ -588,6 +589,13 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
         }
 
         fcntl(sock, F_SETFL, O_NONBLOCK);
+
+        int flag = 1;
+        int result = setsockopt(sock,            /* socket affected */
+                                IPPROTO_TCP,     /* set option at TCP level */
+                                TCP_NODELAY,     /* name of option */
+                                (char *) &flag,  /* the cast is historical cruft */
+                                sizeof(int));    /* length of option value */
 
         sockaddr_in addr;
         memset(&addr, 0, sizeof(addr));
