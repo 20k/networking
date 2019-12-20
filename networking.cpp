@@ -623,7 +623,7 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
                 FD_ZERO(&sockets);
                 FD_SET((uint32_t)sock, &sockets);
 
-                steady_timer timer;
+                /*steady_timer timer;
 
                 while(select((uint32_t)sock + 1, nullptr, &sockets, nullptr, nullptr) <= 0)
                 {
@@ -633,7 +633,7 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 }
 
-                printf("Connected\n");
+                printf("Connected\n");*/
             }
             else
             {
