@@ -12,6 +12,8 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <iostream>
+#include <toolkit/clock.hpp>
+#include <netinet/tcp.h>
 #endif // __EMSCRIPTEN__
 
 #ifndef __EMSCRIPTEN__
@@ -533,6 +535,9 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 #endif // __EMSCRIPTEN__
 
 #ifdef __EMSCRIPTEN__
+
+#include <emscripten/emscripten.h>
+
 namespace
 {
 
@@ -581,10 +586,17 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
         if(sock == -1)
         {
             printf("Socket error, server down? %i\n", sock);
-            return;
+            throw std::runtime_error("Sock err 1");
         }
 
         fcntl(sock, F_SETFL, O_NONBLOCK);
+
+        int flag = 1;
+        int result = setsockopt(sock,            /* socket affected */
+                                IPPROTO_TCP,     /* set option at TCP level */
+                                TCP_NODELAY,     /* name of option */
+                                (char *) &flag,  /* the cast is historical cruft */
+                                sizeof(int));    /* length of option value */
 
         sockaddr_in addr;
         memset(&addr, 0, sizeof(addr));
@@ -598,6 +610,8 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
 
         printf("Post inet\n");
 
+        conn.connection_in_progress = true;
+
         int connect_err = connect(sock, (sockaddr*)&addr, sizeof(addr));
 
         if(connect_err == -1)
@@ -610,16 +624,28 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
                 FD_ZERO(&sockets);
                 FD_SET((uint32_t)sock, &sockets);
 
-                while(select((uint32_t)sock + 1, nullptr, &sockets, nullptr, nullptr) <= 0) {}
+                /*steady_timer timer;
 
-                printf("Connected\n");
+                while(select((uint32_t)sock + 1, nullptr, &sockets, nullptr, nullptr) <= 0)
+                {
+                    if(timer.get_elapsed_time_s() > 10)
+                        throw std::runtime_error("Timed out");
+
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+
+                printf("Connected\n");*/
             }
             else
             {
                 printf("Socket error, server down (2) %i\n", connect_err);
-                return;
+                throw std::runtime_error("Sock err 2");
             }
         }
+
+        conn.client_connected_to_server = 1;
+
+        conn.connection_in_progress = false;
 
         printf("Fin\n");
 
@@ -644,8 +670,6 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
 
         std::vector<write_data>& read_queue = *read_queue_ptr;
         std::mutex& read_mutex = *read_mutex_ptr;
-
-        conn.client_connected_to_server = 1;
 
         constexpr int MAXDATASIZE = 100000;
         char buf[MAXDATASIZE] = {};
@@ -703,17 +727,21 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
                     read_queue.push_back(ndata);
                 }
             }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
 
     }
     catch(std::exception& e)
     {
         std::cout << "exception in emscripten tcp write " << e.what() << std::endl;
+
     }
+
+    conn.connection_in_progress = false;
 
     if(sock != -1)
         close(sock);
-
 
     {
         std::lock_guard guard(conn.mut);
@@ -735,6 +763,11 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
 }
 }
 #endif // __EMSCRIPTEN__
+
+bool connection::connection_pending()
+{
+    return connection_in_progress;
+}
 
 #ifndef __EMSCRIPTEN__
 void connection::host(const std::string& address, uint16_t port, connection_type::type type)

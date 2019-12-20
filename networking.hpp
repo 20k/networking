@@ -47,6 +47,8 @@ struct connection
 
     size_t last_read_from = -1;
 
+    bool connection_pending();
+
     bool has_read();
     write_data read_from();
     //std::string read();
@@ -112,6 +114,7 @@ struct connection
 
     std::atomic_int client_connected_to_server{0};
     std::atomic_bool should_terminate{false};
+    std::atomic_bool connection_in_progress = false;
 
     ~connection(){should_terminate = true; for(auto& i : thrd){i.join();}}
 
