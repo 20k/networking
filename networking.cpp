@@ -64,10 +64,17 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
     {
         boost::asio::ip::tcp::no_delay nagle(true);
 
-        /*boost::beast::flat_buffer buffer;
+        /*std::cout << "Pre flat\n";
+
+        boost::beast::flat_buffer buffer;
 
         boost::beast::http::request<boost::beast::http::string_body> req;
+
+        std::cout << "Pre read\n";
+
         boost::beast::http::read(socket, buffer, req);
+
+        std::cout << "Post read\n";
 
         if(!websocket::is_upgrade(req))
             throw std::runtime_error("Tried to send http request");
@@ -114,6 +121,12 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
         assert(wps != nullptr);
 
         T& ws = *wps;
+
+        ws.set_option(websocket::stream_base::decorator(
+        [](websocket::response_type& res)
+        {
+            res.insert(boost::beast::http::field::sec_websocket_protocol, "binary");
+        }));
 
         boost::beast::websocket::permessage_deflate opt;
 
@@ -567,12 +580,6 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
         addr.sin_family = AF_INET;
         addr.sin_port = htons(port);
 
-        printf("Pre inet\n");
-
-        inet_pton(AF_INET, address.c_str(), &addr.sin_addr);
-
-        printf("Post inet\n");
-
         sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
         if(sock == -1)
@@ -582,6 +589,12 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
         }
 
         fcntl(sock, F_SETFL, O_NONBLOCK);
+
+        printf("Pre inet\n");
+
+        inet_pton(AF_INET, address.c_str(), &addr.sin_addr);
+
+        printf("Post inet\n");
 
         int connect_err = connect(sock, (sockaddr*)&addr, sizeof(addr));
 
