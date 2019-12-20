@@ -532,6 +532,9 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 #endif // __EMSCRIPTEN__
 
 #ifdef __EMSCRIPTEN__
+
+#include <emscripten/emscripten.h>
+
 namespace
 {
 
@@ -580,7 +583,7 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
         if(sock == -1)
         {
             printf("Socket error, server down? %i\n", sock);
-            return;
+            throw std::runtime_error("Sock err 1");
         }
 
         fcntl(sock, F_SETFL, O_NONBLOCK);
@@ -596,6 +599,8 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
         inet_pton(AF_INET, address.c_str(), &addr.sin_addr);
 
         printf("Post inet\n");
+
+        conn.connection_in_progress = true;
 
         int connect_err = connect(sock, (sockaddr*)&addr, sizeof(addr));
 
@@ -616,9 +621,11 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
             else
             {
                 printf("Socket error, server down (2) %i\n", connect_err);
-                return;
+                throw std::runtime_error("Sock err 2");
             }
         }
+
+        conn.connection_in_progress = false;
 
         printf("Fin\n");
 
@@ -702,17 +709,20 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
                     read_queue.push_back(ndata);
                 }
             }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
 
     }
     catch(std::exception& e)
     {
         std::cout << "exception in emscripten tcp write " << e.what() << std::endl;
+
+        conn.connection_in_progress = false;
     }
 
     if(sock != -1)
         close(sock);
-
 
     {
         std::lock_guard guard(conn.mut);
@@ -734,6 +744,11 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
 }
 }
 #endif // __EMSCRIPTEN__
+
+bool connection::connection_pending()
+{
+    return connection_in_progress;
+}
 
 #ifndef __EMSCRIPTEN__
 void connection::host(const std::string& address, uint16_t port, connection_type::type type)
