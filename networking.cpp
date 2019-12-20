@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <iostream>
+#include <toolkit/clock.hpp>
 #endif // __EMSCRIPTEN__
 
 #ifndef __EMSCRIPTEN__
@@ -614,7 +615,15 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
                 FD_ZERO(&sockets);
                 FD_SET((uint32_t)sock, &sockets);
 
-                while(select((uint32_t)sock + 1, nullptr, &sockets, nullptr, nullptr) <= 0) {}
+                steady_timer timer;
+
+                while(select((uint32_t)sock + 1, nullptr, &sockets, nullptr, nullptr) <= 0)
+                {
+                    if(timer.get_elapsed_time_s() > 10)
+                        throw std::runtime_error("Timed out");
+
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
 
                 printf("Connected\n");
             }
@@ -624,6 +633,8 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
                 throw std::runtime_error("Sock err 2");
             }
         }
+
+        conn.client_connected_to_server = 1;
 
         conn.connection_in_progress = false;
 
@@ -650,8 +661,6 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
 
         std::vector<write_data>& read_queue = *read_queue_ptr;
         std::mutex& read_mutex = *read_mutex_ptr;
-
-        conn.client_connected_to_server = 1;
 
         constexpr int MAXDATASIZE = 100000;
         char buf[MAXDATASIZE] = {};
@@ -718,8 +727,9 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
     {
         std::cout << "exception in emscripten tcp write " << e.what() << std::endl;
 
-        conn.connection_in_progress = false;
     }
+
+    conn.connection_in_progress = false;
 
     if(sock != -1)
         close(sock);
