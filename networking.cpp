@@ -337,9 +337,9 @@ void client_thread(connection& conn, std::string address, uint16_t port)
             wps = new T{ioc};
             wps->text(false);
 
-            wps->next_layer().set_option(nagle);
-
             boost::asio::connect(wps->next_layer(), results.begin(), results.end());
+
+            wps->next_layer().set_option(nagle);
         }
 
         if constexpr(std::is_same_v<T, websocket::stream<ssl::stream<tcp::socket>>>)
@@ -562,17 +562,6 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
 
     try
     {
-        sockaddr_in addr = {};
-
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
-
-        printf("Pre inet\n");
-
-        inet_pton(AF_INET, address.c_str(), &addr.sin_addr);
-
-        printf("Post inet\n");
-
         sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
         if(sock == -1)
@@ -582,6 +571,18 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
         }
 
         fcntl(sock, F_SETFL, O_NONBLOCK);
+
+        sockaddr_in addr;
+        memset(&addr, 0, sizeof(addr));
+
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+
+        printf("Pre inet\n");
+
+        inet_pton(AF_INET, address.c_str(), &addr.sin_addr);
+
+        printf("Post inet\n");
 
         int connect_err = connect(sock, (sockaddr*)&addr, sizeof(addr));
 
@@ -595,9 +596,9 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
                 FD_ZERO(&sockets);
                 FD_SET((uint32_t)sock, &sockets);
 
-                /* You should probably do other work instead of busy waiting on this...
-                   or set a timeout or something */
                 while(select((uint32_t)sock + 1, nullptr, &sockets, nullptr, nullptr) <= 0) {}
+
+                printf("Connected\n");
             }
             else
             {
@@ -605,6 +606,8 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
                 return;
             }
         }
+
+        printf("Fin\n");
 
         std::vector<write_data>* write_queue_ptr = nullptr;
         std::mutex* write_mutex_ptr = nullptr;
@@ -694,7 +697,7 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
         std::cout << "exception in emscripten tcp write " << e.what() << std::endl;
     }
 
-    if(sock)
+    if(sock != -1)
         close(sock);
 
 
