@@ -28,7 +28,8 @@ namespace connection_type
     enum type
     {
         PLAIN,
-        SSL
+        SSL,
+        EMSCRIPTEN_AUTOMATIC
     };
 }
 
