@@ -6,6 +6,7 @@
 #include <thread>
 #include <vector>
 #include <mutex>
+#include <shared_mutex>
 #include <optional>
 #include <atomic>
 #include "serialisable.hpp"
@@ -95,7 +96,7 @@ struct connection
         write_to(dat);
     }
 
-    std::mutex mut;
+    std::shared_mutex mut;
     std::map<uint64_t, std::vector<write_data>> directed_write_queue;
     std::map<uint64_t, std::mutex> directed_write_lock;
 

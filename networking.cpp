@@ -140,7 +140,7 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
         id = conn.id++;
 
         {
-            std::lock_guard guard(conn.mut);
+            std::unique_lock guard(conn.mut);
 
             conn.new_clients.push_back(id);
             conn.connected_clients.push_back(id);
@@ -161,7 +161,7 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
         std::mutex* read_mutex_ptr = nullptr;
 
         {
-            std::lock_guard guard(conn.mut);
+            std::unique_lock guard(conn.mut);
 
             write_queue_ptr = &conn.directed_write_queue[id];
             write_mutex_ptr = &conn.directed_write_lock[id];
@@ -284,7 +284,7 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
     }
 
     {
-        std::lock_guard guard(conn.mut);
+        std::unique_lock guard(conn.mut);
 
         for(int i=0; i < (int)conn.connected_clients.size(); i++)
         {
@@ -401,7 +401,7 @@ void client_thread(connection& conn, std::string address, uint16_t port)
         std::mutex* read_mutex_ptr = nullptr;
 
         {
-            std::lock_guard guard(conn.mut);
+            std::unique_lock guard(conn.mut);
 
             write_queue_ptr = &conn.directed_write_queue[-1];
             write_mutex_ptr = &conn.directed_write_lock[-1];
@@ -508,7 +508,7 @@ void client_thread(connection& conn, std::string address, uint16_t port)
     }
 
     {
-        std::lock_guard guard(conn.mut);
+        std::unique_lock guard(conn.mut);
 
         {
             std::lock_guard g2(conn.directed_write_lock[-1]);
@@ -656,7 +656,7 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
         std::mutex* read_mutex_ptr = nullptr;
 
         {
-            std::lock_guard guard(conn.mut);
+            std::unique_lock guard(conn.mut);
 
             write_queue_ptr = &conn.directed_write_queue[-1];
             write_mutex_ptr = &conn.directed_write_lock[-1];
@@ -744,7 +744,7 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
         close(sock);
 
     {
-        std::lock_guard guard(conn.mut);
+        std::unique_lock guard(conn.mut);
 
         {
             std::lock_guard g2(conn.directed_write_lock[-1]);
@@ -818,7 +818,7 @@ void connection::write(const std::string& data)
 
 bool connection::has_read()
 {
-    std::lock_guard guard(mut);
+    std::shared_lock guard(mut);
 
     for(auto& i : fine_read_queue)
     {
@@ -843,7 +843,7 @@ write_data connection::read_from()
     ///there's a version of this function that could be written
     ///where mut is not held all the time
 
-    std::lock_guard guard(mut);
+    std::shared_lock guard(mut);
 
     ///check through queue, basically round robins people based on ids
     for(auto& i : fine_read_queue)
@@ -882,7 +882,7 @@ void connection::pop_read(uint64_t id)
     std::mutex* mut_ptr = nullptr;
 
     {
-        std::lock_guard guard(mut);
+        std::unique_lock guard(mut);
 
         read_ptr = &fine_read_queue[id];
         mut_ptr = &fine_read_lock[id];
@@ -907,7 +907,7 @@ void connection::write_to(const write_data& data)
     std::mutex* write_mutex = nullptr;
 
     {
-        std::lock_guard guard(mut);
+        std::unique_lock guard(mut);
 
         write_dat = &directed_write_queue[data.id];
         write_mutex = &directed_write_lock[data.id];
@@ -920,7 +920,7 @@ void connection::write_to(const write_data& data)
 
 std::optional<uint64_t> connection::has_new_client()
 {
-    std::lock_guard guard(mut);
+    std::shared_lock guard(mut);
 
     for(auto& i : new_clients)
     {
@@ -954,7 +954,7 @@ void connection::pop_disconnected_client()
 
 void connection::pop_new_client()
 {
-    std::lock_guard guard(mut);
+    std::unique_lock guard(mut);
 
     if(new_clients.size() > 0)
     {
@@ -964,7 +964,7 @@ void connection::pop_new_client()
 
 std::vector<uint64_t> connection::clients()
 {
-    std::lock_guard guard(mut);
+    std::shared_lock guard(mut);
 
     return connected_clients;
 }
