@@ -728,7 +728,7 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
                 }
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            std::this_thread::sleep_for(std::chrono::milliseconds(8));
         }
 
     }
@@ -793,17 +793,11 @@ void connection::connect(const std::string& address, uint16_t port, connection_t
     if(type == connection_type::SSL)
         thrd.emplace_back(client_thread<websocket::stream<ssl::stream<tcp::socket>>>, std::ref(*this), address, port);
     #else
-
-    printf("In connect\n");
-
-    if(type != connection_type::PLAIN)
-        throw std::runtime_error("So, not sure this is possible");
-
-    printf("Pre emplace\n");
+    ///-s WEBSOCKET_URL=wss://
+    if(type != connection_type::EMSCRIPTEN_AUTOMATIC)
+        throw std::runtime_error("emscripten uses compiler options for secure vs non secure websockets");
 
     thrd.emplace_back(client_thread_tcp, std::ref(*this), address, port);
-
-    printf("Post emplace\n");
     #endif
 }
 
