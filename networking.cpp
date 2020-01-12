@@ -318,6 +318,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
     boost::asio::io_context acceptor_context{1};
 
     tcp::acceptor acceptor{acceptor_context, {address, port}};
+    acceptor.set_option(boost::asio::socket_base::reuse_address(true));
 
     while(1)
     {
