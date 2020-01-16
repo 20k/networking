@@ -131,8 +131,9 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
         }));
 
         boost::beast::websocket::permessage_deflate opt;
-
         opt.server_enable = true;
+        opt.client_enable = true;
+
         ws.set_option(opt);
 
         ws.accept();
@@ -380,7 +381,8 @@ void client_thread(connection& conn, std::string address, uint16_t port)
         T& ws = *wps;
 
         boost::beast::websocket::permessage_deflate opt;
-        opt.client_enable = true; // for clients
+        opt.server_enable = true;
+        opt.client_enable = true;
 
         ws.set_option(opt);
 
