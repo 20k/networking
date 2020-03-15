@@ -69,7 +69,7 @@ struct owned
     size_t _pid = -1;
 
     owned(){_pid = get_next_persistent_id();}
-    owned(temporary_owned tmp){}
+    owned(temporary_owned tmp){(void)tmp;}
 
     virtual ~owned() = default;
 };
