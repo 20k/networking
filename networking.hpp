@@ -87,6 +87,7 @@ struct connection
     void write_to(const write_data& data);
     void write(const std::string& data);
 
+    #ifndef NO_SERIALISATION
     template<typename T>
     void writes_to(T& data, uint64_t id)
     {
@@ -101,6 +102,7 @@ struct connection
 
         write_to(dat);
     }
+    #endif
 
     std::shared_mutex mut;
     std::map<uint64_t, std::vector<write_data>> directed_write_queue;
