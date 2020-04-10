@@ -10,6 +10,10 @@
 #include <ndb/db_storage.hpp>
 #include "netinterpolate.hpp"
 
+#ifdef SERIALISE_ENTT
+#include <entt/entt.hpp>
+#endif // SERIALISE_ENTT
+
 ///its going to be this kind of file
 ///if this makes you sad its not getting any better from here
 
@@ -175,6 +179,30 @@ namespace serialise_mode
 { \
     rpc(#function_name , *this, std::forward<T>(t)...);\
 }
+
+#ifdef SERIALISE_ENTT
+#define DEFINE_ENTT_SERIALISE() void serialise_entt_base(entt::entity en, serialise_context& ctx, nlohmann::json& data, uint32_t type_id, entt::entity* other)
+
+#define DO_ENTT_SERIALISE(x) \
+                            if(entt::type_info<x>::id() == type_id) { \
+                                if(!ctx.encode) \
+                                { \
+                                    x attach = x(); \
+                                    do_serialise(ctx, data, attach, other); \
+                                    ctx.registry.emplace<x>(en, attach); \
+                                } \
+                                else \
+                                { \
+                                    assert(ctx.registry.has<x>(en)); \
+                                    x& val = ctx.registry.get<x>(en); \
+                                    do_serialise(ctx, data, val, other); \
+                                } \
+                                return; \
+                             }
+
+#define END_ENTT_SERIALISE() throw std::runtime_error("No such class found");
+
+#endif // SERIALISE_ENTT
 
 inline
 bool nlohmann_has_name(const nlohmann::json& data, const char* name)
