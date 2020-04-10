@@ -77,7 +77,7 @@ namespace serialise_mode
                                     ctx.stagger_stack++; \
                                 \
                                 if(!skip && (other == nullptr || !ctx.encode || !serialisable_is_equal(&obj->x, fptr))) \
-                                    do_serialise(ctx, data, obj->x, my_name, fptr); \
+                                    do_serialise(ctx, data[my_name], obj->x, fptr); \
                                 \
                                 if(stagger == ratelimits::STAGGER) \
                                     ctx.stagger_stack--; \
@@ -357,9 +357,9 @@ void call_serialise(T& in, serialise_context& ctx, nlohmann::json& json, T* othe
     }
 }
 
-template<int N, typename T, typename I>
+template<int N, typename T>
 inline
-void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, const I& name, vec<N, T>* other)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, vec<N, T>* other)
 {
     if(ctx.encode)
     {
@@ -368,31 +368,34 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, vec<N, T>& in, c
 
         for(int i=0; i < N; i++)
         {
-            data[name][i] = in.v[i];
+            data[i] = in.v[i];
         }
     }
     else
     {
-        if(!nlohmann_has_name(data, name))
+        /*if(!nlohmann_has_name(data, name))
+            return;*/
+
+        if(data.is_null())
             return;
 
         for(int i=0; i < N; i++)
         {
-            in.v[i] = data[name][i];
+            in.v[i] = data[i];
 
             make_finite(in.v[i]);
         }
     }
 }
 
-template<typename T, typename I>
+template<typename T>
 inline
-void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& name, T* other)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, T* other)
 {
     constexpr bool is_serialisable = std::is_base_of_v<serialisable, T>;
     constexpr bool is_owned = std::is_base_of_v<owned, T>;
 
-    if(!ctx.encode && !nlohmann_has_name(data, name))
+    if(!ctx.encode && data.is_null())
         return;
 
     if constexpr(is_serialisable)
@@ -425,7 +428,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
         if(staggering)
             ctx.stagger_stack--;
 
-        call_serialise(in, ctx, data[name], other);
+        call_serialise(in, ctx, data, other);
 
         if(staggering)
             ctx.stagger_stack++;
@@ -433,9 +436,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
         if constexpr(is_owned)
         {
             if(ctx.encode)
-                data[name][PID_STRING] = in._pid;
+                data[PID_STRING] = in._pid;
             else
-                in._pid = data[name][PID_STRING];
+                in._pid = data[PID_STRING];
         }
     }
 
@@ -446,25 +449,25 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, const I& 
             if(serialisable_is_equal(&in, other))
                 return;
 
-            data[name] = in;
+            data = in;
         }
         else
         {
-            in = data[name];
+            in = data;
 
             make_finite(in);
 
             if constexpr(is_owned)
             {
-                in._pid = data[name][PID_STRING];
+                in._pid = data[PID_STRING];
             }
         }
     }
 }
 
-template<typename T, typename I>
+template<typename T>
 inline
-void do_serialise(serialise_context& ctx, nlohmann::json& data, T*& in, const I& name, T** other)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, T*& in, T** other)
 {
     if(in == nullptr)
     {
@@ -474,14 +477,14 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T*& in, const I&
     T* fptr = nullptr;
 
     if(other)
-        do_serialise(ctx, data, *in, name, *other);
+        do_serialise(ctx, data, *in, *other);
     else
-        do_serialise(ctx, data, *in, name, fptr);
+        do_serialise(ctx, data, *in, fptr);
 }
 
-template<typename T, typename I>
+template<typename T>
 inline
-void do_serialise(serialise_context& ctx, nlohmann::json& data, std::shared_ptr<T>& in, const I& name, std::shared_ptr<T>* other)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, std::shared_ptr<T>& in, std::shared_ptr<T>* other)
 {
     if(!in)
         in = std::make_shared<T>();
@@ -489,29 +492,29 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::shared_ptr<
     T* fptr = nullptr;
 
     if(other)
-        do_serialise(ctx, data, *in, name, &(**other));
+        do_serialise(ctx, data, *in, &(**other));
     else
-        do_serialise(ctx, data, *in, name, fptr);
+        do_serialise(ctx, data, *in, fptr);
 }
 
-template<typename T, typename I, std::size_t N>
+template<typename T, std::size_t N>
 inline
-void do_serialise(serialise_context& ctx, nlohmann::json& data, std::array<T, N>& in, const I& name, std::array<T, N>* other)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, std::array<T, N>& in, std::array<T, N>* other)
 {
     T* fptr = nullptr;
 
     for(int i=0; i < (int)N; i++)
     {
         if(other)
-            do_serialise(ctx, data[name][i], in[i], i, &(*other)[i]);
+            do_serialise(ctx, data[i], in[i], &(*other)[i]);
         else
-            do_serialise(ctx, data[name][i], in[i], i, fptr);
+            do_serialise(ctx, data[i], in[i], fptr);
     }
 }
 
-template<typename T, typename I>
+template<typename T>
 inline
-void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& in, const I& name, std::vector<T>* other)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& in, std::vector<T>* other)
 {
     //constexpr bool is_owned = std::is_base_of_v<owned, std::remove_pointer_t<T>>;
     T* fptr = nullptr;
@@ -520,28 +523,25 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
     {
         if(ctx.encode)
         {
-            nlohmann::json& mname = data[name];
-
             for(int i=0; i < (int)in.size(); i++)
             {
-                do_serialise(ctx, mname, in[i], i, fptr);
+                do_serialise(ctx, data[i], in[i], fptr);
             }
 
             if(in.size() == 0)
             {
-                mname = nlohmann::json::array();
+                data = nlohmann::json::array();
             }
         }
         else
         {
-            int num = data[name].size();
-            nlohmann::json& mname = data[name];
+            int num = data.size();
 
             in.resize(num);
 
             for(int i=0; i < num; i++)
             {
-                do_serialise(ctx, mname, in[i], i, fptr);
+                do_serialise(ctx, data[i], in[i], fptr);
             }
         }
     }
@@ -552,14 +552,16 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
         {
             ///think the problem is that we're skipping elements in the array which confuses everything
 
-            nlohmann::json& mname = data[name]["a"];
-            data[name]["c"] = in.size();
+            nlohmann::json& mname = data["a"];
+            data["c"] = in.size();
 
             if(other && in.size() == other->size())
             {
                 for(int i=0; i < (int)in.size(); i++)
                 {
-                    do_serialise(ctx, mname, in[i], std::to_string(i), &(*other)[i]);
+                    std::string idx = std::to_string(i);
+
+                    do_serialise(ctx, mname[idx], in[i], &(*other)[i]);
 
                 }
             }
@@ -567,19 +569,24 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
             {
                 for(int i=0; i < (int)in.size(); i++)
                 {
-                    do_serialise(ctx, mname, in[i], std::to_string(i), fptr);
+                    std::string idx = std::to_string(i);
+
+                    do_serialise(ctx, mname[idx], in[i], fptr);
                 }
             }
         }
         else
         {
-            if(!nlohmann_has_name(data, name))
+            /*if(!nlohmann_has_name(data, name))
+                return;*/
+
+            if(data.is_null())
                 return;
 
             //if constexpr(!is_owned)
             {
-                nlohmann::json& mname = data[name]["a"];
-                int num = data[name]["c"];
+                nlohmann::json& mname = data["a"];
+                int num = data["c"];
 
                 T* fptr = nullptr;
 
@@ -597,11 +604,11 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
                     if(other == nullptr || other->size() != (size_t)num)
                     {
-                        do_serialise(ctx, mname, in[idx], std::to_string(idx), fptr);
+                        do_serialise(ctx, i.value(), in[idx], fptr);
                     }
                     else
                     {
-                        do_serialise(ctx, mname, in[idx], std::to_string(idx), &(*other)[idx]);
+                        do_serialise(ctx, i.value(), in[idx], &(*other)[idx]);
                     }
                 }
             }
@@ -610,9 +617,9 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 }
 
 ///does not support ownership yet
-template<typename T, typename U, typename I>
+template<typename T, typename U>
 inline
-void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& in, const I& name, std::map<T, U>* other)
+void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& in, std::map<T, U>* other)
 {
     //T* fptr = nullptr;
     //U* uptr = nullptr;
@@ -645,26 +652,26 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::map<T, U>& 
     {
         if(other)
         {
-            do_serialise(ctx, data[name], keys, "f", &okeys);
-            do_serialise(ctx, data[name], vals, "s", &ovals);
+            do_serialise(ctx, data["f"], keys, &okeys);
+            do_serialise(ctx, data["s"], vals, &ovals);
         }
         else
         {
-            do_serialise(ctx, data[name], keys, "f", vfptr);
-            do_serialise(ctx, data[name], vals, "s", vuptr);
+            do_serialise(ctx, data["f"], keys, vfptr);
+            do_serialise(ctx, data["s"], vals, vuptr);
         }
     }
     else
     {
         if(other)
         {
-            do_serialise(ctx, data[name], keys, "f", &okeys);
-            do_serialise(ctx, data[name], vals, "s", &ovals);
+            do_serialise(ctx, data["f"], keys, &okeys);
+            do_serialise(ctx, data["s"], vals, &ovals);
         }
         else
         {
-            do_serialise(ctx, data[name], keys, "f", vfptr);
-            do_serialise(ctx, data[name], vals, "s", vuptr);
+            do_serialise(ctx, data["f"], keys, vfptr);
+            do_serialise(ctx, data["s"], vals, vuptr);
         }
 
         if(keys.size() != vals.size())
