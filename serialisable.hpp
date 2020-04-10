@@ -320,7 +320,7 @@ template<typename T>
 inline
 void make_finite(T& in)
 {
-
+    (void)in;
 }
 
 template<>
