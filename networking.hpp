@@ -9,7 +9,10 @@
 #include <shared_mutex>
 #include <optional>
 #include <atomic>
+
+#ifndef NO_SERIALISATION
 #include "serialisable.hpp"
+#endif
 
 struct write_data
 {
@@ -59,6 +62,7 @@ struct connection
     static inline thread_local int thread_is_client = 0;
     static inline thread_local int thread_is_server = 0;
 
+    #ifndef NO_SERIALISATION
     template<typename T>
     uint64_t reads_from(T& old)
     {
@@ -70,6 +74,7 @@ struct connection
 
         return data.id;
     }
+    #endif
 
 
     /*template<typename T>
@@ -135,6 +140,7 @@ namespace network_mode
     };
 }
 
+#ifndef NO_SERIALISATION
 struct network_protocol : serialisable
 {
     network_mode::type type = network_mode::COUNT;
@@ -199,5 +205,6 @@ struct network_data_model
         }
     }
 };
+#endif
 
 #endif // NETWORKING_HPP_INCLUDED
