@@ -9,6 +9,7 @@
 #include <shared_mutex>
 #include <optional>
 #include <atomic>
+#include <map>
 
 #ifndef NO_SERIALISATION
 #include "serialisable.hpp"
