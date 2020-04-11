@@ -13,6 +13,13 @@ bool nlohmann_has_name(const nlohmann::json& data, int name)
     return name < data.size() && !data[name].is_null();
 }*/
 
+#ifdef SERIALISE_ENTT
+entt::registry& get_thread_local_registry()
+{
+    return *ptr_get_thread_local_registry();
+}
+#endif // SERIALISE_ENTT
+
 nlohmann::json& nlohmann_index(nlohmann::json& data, const std::string& name)
 {
     return data[name];

@@ -196,12 +196,6 @@ entt::registry*& ptr_get_thread_local_registry()
 }
 
 inline
-entt::registry& get_thread_local_registry()
-{
-    return *ptr_get_thread_local_registry();
-}
-
-inline
 void set_thread_local_registry(entt::registry& registry)
 {
     delete ptr_get_thread_local_registry();

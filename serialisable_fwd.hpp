@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <vector>
 
+#ifdef SERIALISE_ENTT
+#include <entt/entt.hpp>
+#endif // SERIALISE_ENTT
+
 #if __has_include(<nlohmann/json_fwd.hpp>)
 #include <nlohmann/json_fwd.hpp>
 #else
@@ -51,6 +55,10 @@ void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* othe
 #define DEFINE_FRIENDLY_RPC5(c, x, y, z, w, a, b) void c::x##_rpc(y one, z two, w three, a four, b five){rpc(#x, *this, one, two, three, four, five);}
 
 //#define DEFINE_FRIENDLY_RPC(
+
+#ifdef SERIALISE_ENTT
+entt::registry& get_thread_local_registry();
+#endif // SERIALISE_ENTT
 
 struct serialise_context;
 
