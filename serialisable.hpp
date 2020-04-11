@@ -12,6 +12,7 @@
 
 #ifdef SERIALISE_ENTT
 #include <entt/entt.hpp>
+#include <tuple>
 #endif // SERIALISE_ENTT
 
 ///its going to be this kind of file
@@ -181,7 +182,48 @@ namespace serialise_mode
 }
 
 #ifdef SERIALISE_ENTT
-#define DEFINE_ENTT_SERIALISE() void serialise_entt_base(entt::entity en, serialise_context& ctx, nlohmann::json& data, uint32_t type_id, entt::entity* other)
+#define DECLARE_ENTT_SERIALISE() void serialise_entt_base(entt::entity en, serialise_context& ctx, nlohmann::json& data, uint32_t type_id, entt::entity* other)
+
+//Forward declare. This is super hacky, not sure how to solve
+DECLARE_ENTT_SERIALISE();
+
+#define DEFINE_ENTT_SERIALISE() \
+    template<typename T> \
+    inline \
+    void for_each_tuple(T func) \
+    { \
+        entt_type_list empty_tuple; \
+      \
+        std::apply([&](auto&&... args) {((func(args)), ...);}, empty_tuple); \
+    } \
+      \
+    void serialise_entt_base(entt::entity en, serialise_context& ctx, nlohmann::json& data, uint32_t type_id, entt::entity* other){ \
+        (void)other; \
+        for_each_tuple([&](auto& var) \
+        { \
+            (void)var; \
+            using type = std::decay_t<decltype(var)>; \
+            if(entt::type_info<type>::id() == type_id) \
+            { \
+                if(ctx.encode) \
+                { \
+                    type attach = type(); \
+                    type* nptr = nullptr; \
+                    do_serialise(ctx, data, attach, nptr); \
+                    ctx.registry.emplace<type>(en, attach); \
+                } \
+                else \
+                { \
+                    assert(ctx.registry.has<type>(en)); \
+                    type& val = ctx.registry.get<type>(en); \
+                    type* nptr = nullptr; \
+                    do_serialise(ctx, data, val, nptr); \
+                } \
+            } \
+        });  \
+    }
+
+#define DEFINE_ENTT_TYPES(...) using entt_type_list = std::tuple<__VA_ARGS__>
 
 #define DO_ENTT_SERIALISE(x) \
                             if(entt::type_info<x>::id() == type_id) { \
@@ -289,6 +331,10 @@ struct serialise_context
     owned* get_by_id_ptr = nullptr; ///well, this is bad!
 
     bool update_interpolation = false;
+
+    #ifdef SERIALISE_ENTT
+    entt::registry registry;
+    #endif // SERIALISE_ENTT
 };
 
 template<typename T>
@@ -372,6 +418,7 @@ void make_finite(double& in)
 }
 
 template<typename T>
+inline
 void call_serialise(T& in, serialise_context& ctx, nlohmann::json& json, T* other = nullptr)
 {
     if constexpr(std::is_base_of_v<free_function, T>)
@@ -384,6 +431,35 @@ void call_serialise(T& in, serialise_context& ctx, nlohmann::json& json, T* othe
         in.serialise(ctx, json, other);
     }
 }
+
+#ifdef SERIALISE_ENTT
+inline
+void do_serialise(serialise_context& ctx, nlohmann::json& data, entt::entity& en, entt::entity* other)
+{
+    if(ctx.encode)
+    {
+        ctx.registry.visit(en, [&](auto& component)
+        {
+            auto id = component;
+
+            std::string string_name = std::to_string(id);
+
+            serialise_entt_base(en, ctx, data[string_name], id, other);
+        });
+    }
+    else
+    {
+        en = ctx.registry.create();
+
+        for(auto& it : data.items())
+        {
+            uint32_t id = std::stoul(it.key());
+
+            serialise_entt_base(en, ctx, it.value(), id, other);
+        }
+    }
+}
+#endif // SERIALISE_ENTT
 
 template<int N, typename T>
 inline
@@ -523,6 +599,39 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::shared_ptr<
         do_serialise(ctx, data, *in, &(**other));
     else
         do_serialise(ctx, data, *in, fptr);
+}
+
+template<typename T>
+inline
+void do_serialise(serialise_context& ctx, nlohmann::json& data, std::optional<T>& in, std::optional<T>* other)
+{
+    T* nptr = nullptr;
+
+    if(ctx.encode)
+    {
+        if(!in.has_value())
+            return;
+
+        if(other && other->has_value())
+            do_serialise(ctx, data, in.value(), &other->value());
+        else
+            do_serialise(ctx, data, in.value(), nptr);
+    }
+    else
+    {
+        if(data.is_null())
+        {
+            in = std::nullopt;
+        }
+        else
+        {
+            T val = T();
+
+            do_serialise(ctx, data, val, nptr);
+
+            in = val;
+        }
+    }
 }
 
 template<typename T, std::size_t N>

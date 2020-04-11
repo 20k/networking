@@ -23,7 +23,7 @@
 
 #define DECLARE_SERIALISE_FUNCTION(x) \
 struct x; \
-void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other);
+void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other)
 
 /*template<> inline constexpr bool is_serialisable<x>(){return true;}\
 template<> inline constexpr bool is_free_function<x>(){return true;}\
@@ -49,10 +49,6 @@ void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* othe
 #define DEFINE_FRIENDLY_RPC3(c, x, y, z, w) void c::x##_rpc(y one, z two, w three){rpc(#x, *this, one, two, three);}
 #define DEFINE_FRIENDLY_RPC4(c, x, y, z, w, a) void c::x##_rpc(y one, z two, w three, a four){rpc(#x, *this, one, two, three, four);}
 #define DEFINE_FRIENDLY_RPC5(c, x, y, z, w, a, b) void c::x##_rpc(y one, z two, w three, a four, b five){rpc(#x, *this, one, two, three, four, five);}
-
-#ifdef SERIALISE_ENTT
-#define DECLARE_ENTT_SERIALISE() void serialise_entt_base(entt::entity en, serialise_context& ctx, nlohmann::json& data, uint32_t type_id)
-#endif // SERIALISE_ENTT
 
 //#define DEFINE_FRIENDLY_RPC(
 
