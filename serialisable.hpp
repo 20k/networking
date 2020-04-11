@@ -187,6 +187,27 @@ namespace serialise_mode
 //Forward declare. This is super hacky, not sure how to solve
 DECLARE_ENTT_SERIALISE();
 
+inline
+entt::registry*& ptr_get_thread_local_registry()
+{
+    static thread_local entt::registry* reg = new entt::registry;
+
+    return reg;
+}
+
+inline
+entt::registry& get_thread_local_registry()
+{
+    return *ptr_get_thread_local_registry();
+}
+
+inline
+void set_thread_local_registry(entt::registry& registry)
+{
+    delete ptr_get_thread_local_registry();
+    ptr_get_thread_local_registry() = &registry;
+}
+
 #define DEFINE_ENTT_SERIALISE() \
     template<typename T> \
     inline \
@@ -210,12 +231,12 @@ DECLARE_ENTT_SERIALISE();
                     type attach = type(); \
                     type* nptr = nullptr; \
                     do_serialise(ctx, data, attach, nptr); \
-                    ctx.registry.emplace<type>(en, attach); \
+                    get_thread_local_registry().emplace<type>(en, attach); \
                 } \
                 else \
                 { \
-                    assert(ctx.registry.has<type>(en)); \
-                    type& val = ctx.registry.get<type>(en); \
+                    assert(get_thread_local_registry().has<type>(en)); \
+                    type& val = get_thread_local_registry().get<type>(en); \
                     type* nptr = nullptr; \
                     do_serialise(ctx, data, val, nptr); \
                 } \
@@ -231,12 +252,12 @@ DECLARE_ENTT_SERIALISE();
                                 { \
                                     x attach = x(); \
                                     do_serialise(ctx, data, attach, other); \
-                                    ctx.registry.emplace<x>(en, attach); \
+                                    get_thread_local_registry().emplace<x>(en, attach); \
                                 } \
                                 else \
                                 { \
-                                    assert(ctx.registry.has<x>(en)); \
-                                    x& val = ctx.registry.get<x>(en); \
+                                    assert(get_thread_local_registry().has<x>(en)); \
+                                    x& val = get_thread_local_registry().get<x>(en); \
                                     do_serialise(ctx, data, val, other); \
                                 } \
                                 return; \
@@ -331,10 +352,6 @@ struct serialise_context
     owned* get_by_id_ptr = nullptr; ///well, this is bad!
 
     bool update_interpolation = false;
-
-    #ifdef SERIALISE_ENTT
-    entt::registry registry;
-    #endif // SERIALISE_ENTT
 };
 
 template<typename T>
@@ -438,7 +455,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, entt::entity& en
 {
     if(ctx.encode)
     {
-        ctx.registry.visit(en, [&](auto& component)
+        get_thread_local_registry().visit(en, [&](auto& component)
         {
             auto id = component;
 
@@ -449,7 +466,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, entt::entity& en
     }
     else
     {
-        en = ctx.registry.create();
+        en = get_thread_local_registry().create();
 
         for(auto& it : data.items())
         {
