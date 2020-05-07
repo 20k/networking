@@ -219,7 +219,7 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
 
                                       read_queue.push_back(ndata);
 
-                                      rbuffer = decltype(rbuffer)();
+                                      rbuffer.clear();
 
                                       async_read = false;
                                       should_continue = true;
@@ -778,7 +778,7 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
                                       read_queue.push_back(ndata);
 
-                                      rbuffer = decltype(rbuffer)();
+                                      rbuffer.clear();
 
                                       async_read = false;
                                       should_continue = true;

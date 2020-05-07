@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <vector>
 
+#ifdef SERIALISE_ENTT
+#include <entt/entt.hpp>
+#endif // SERIALISE_ENTT
+
 #if __has_include(<nlohmann/json_fwd.hpp>)
 #include <nlohmann/json_fwd.hpp>
 #else
@@ -23,7 +27,7 @@
 
 #define DECLARE_SERIALISE_FUNCTION(x) \
 struct x; \
-void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other);
+void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other)
 
 /*template<> inline constexpr bool is_serialisable<x>(){return true;}\
 template<> inline constexpr bool is_free_function<x>(){return true;}\
@@ -52,6 +56,10 @@ void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* othe
 
 //#define DEFINE_FRIENDLY_RPC(
 
+#ifdef SERIALISE_ENTT
+entt::registry& get_thread_local_registry();
+#endif // SERIALISE_ENTT
+
 struct serialise_context;
 
 size_t& get_raw_id_impl();
@@ -69,7 +77,7 @@ struct owned
     size_t _pid = -1;
 
     owned(){_pid = get_next_persistent_id();}
-    owned(temporary_owned tmp){}
+    owned(temporary_owned tmp){(void)tmp;}
 
     virtual ~owned() = default;
 };
