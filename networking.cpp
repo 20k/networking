@@ -59,6 +59,7 @@ std::string read_file_bin(const std::string& file)
     return str;
 }
 
+#if 0
 template<typename T>
 void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socket& socket)
 {
@@ -296,6 +297,7 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
         conn.disconnected_clients.push_back(id);
     }
 }
+#endif // 0
 
 /*template<typename T>
 void server_thread(connection& conn, std::string saddress, uint16_t port)
@@ -454,11 +456,11 @@ void write_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
             {
                 std::lock_guard guard(mutex);
 
-                if(queue.size() == 0)
-                    continue;
-
-                next_data = *queue.begin();
-                queue.erase(queue.begin());
+                if(queue.size() > 0)
+                {
+                    next_data = *queue.begin();
+                    queue.erase(queue.begin());
+                }
             }
 
             if(next_data.has_value())
@@ -605,11 +607,22 @@ void server(connection& conn, std::shared_ptr<boost::asio::io_context> const& io
             } else {
                 boost::fibers::fiber(session<T>, std::ref(conn), socket).detach();
             }
+
+            sf::sleep(sf::milliseconds(1));
         }
     } catch (std::exception const& ex) {
 
     }
     io_ctx->stop();
+}
+
+void sleeper()
+{
+    while(1)
+    {
+        sf::sleep(sf::milliseconds(1));
+        boost::this_fiber::sleep_for(std::chrono::milliseconds(16));
+    }
 }
 
 template<typename T>
@@ -621,6 +634,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
     tcp::acceptor acceptor(*io_ctx, tcp::endpoint(tcp::v4(), port));
     acceptor.set_option(boost::asio::socket_base::reuse_address(true));
 
+    boost::fibers::fiber(sleeper).detach();
     boost::fibers::fiber(server<T>, std::ref(conn), std::cref(io_ctx), std::ref(acceptor)).detach();
 
     io_ctx->run();
