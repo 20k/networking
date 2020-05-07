@@ -36,6 +36,10 @@
 #include <SFML/System/Sleep.hpp>
 #include <fstream>
 
+#include <boost/fiber/all.hpp>
+#include "fiber_round_robin.hpp"
+#include "fiber_yield.hpp"
+
 using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
 namespace websocket = boost::beast::websocket;  // from <boost/beast/websocket.hpp>
 namespace ssl = boost::asio::ssl;               // from <boost/asio/ssl.hpp>
@@ -65,23 +69,6 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
     try
     {
         boost::asio::ip::tcp::no_delay nagle(true);
-
-        /*std::cout << "Pre flat\n";
-
-        boost::beast::flat_buffer buffer;
-
-        boost::beast::http::request<boost::beast::http::string_body> req;
-
-        std::cout << "Pre read\n";
-
-        boost::beast::http::read(socket, buffer, req);
-
-        std::cout << "Post read\n";
-
-        if(!websocket::is_upgrade(req))
-            throw std::runtime_error("Tried to send http request");
-
-        std::cout << boost::beast::buffers_to_string(buffer.data()) << std::endl;*/
 
         if constexpr(std::is_same_v<T, websocket::stream<tcp::socket>>)
         {
@@ -310,7 +297,7 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
     }
 }
 
-template<typename T>
+/*template<typename T>
 void server_thread(connection& conn, std::string saddress, uint16_t port)
 {
     auto const address = boost::asio::ip::make_address(saddress);
@@ -333,7 +320,43 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 
         sf::sleep(sf::milliseconds(1));;
     }
+}*/
+void server(std::shared_ptr<boost::asio::io_context> const& io_ctx, tcp::acceptor& a) {
+    //print( tag(), ": echo-server started");
+    try {
+        for (;;) {
+            std::shared_ptr<tcp::socket> socket( new tcp::socket( * io_ctx) );
+            boost::system::error_code ec;
+            a.async_accept(
+                    * socket,
+                    boost::fibers::asio::yield[ec]);
+            if ( ec) {
+                throw boost::system::system_error( ec); //some other error
+            } else {
+                //boost::fibers::fiber( session, socket).detach();
+            }
+        }
+    } catch ( std::exception const& ex) {
+        //print( tag(), ": caught exception : ", ex.what());
+    }
+    io_ctx->stop();
+    //print( tag(), ": echo-server stopped");
 }
+
+template<typename T>
+void server_thread(connection& conn, std::string saddress, uint16_t port)
+{
+    std::shared_ptr< boost::asio::io_context > io_ctx = std::make_shared< boost::asio::io_context >();
+    boost::fibers::use_scheduling_algorithm< boost::fibers::asio::round_robin >( io_ctx);
+
+    tcp::acceptor acceptor(*io_ctx, tcp::endpoint(tcp::v4(), port));
+    acceptor.set_option(boost::asio::socket_base::reuse_address(true));
+
+    boost::fibers::fiber( server, io_ctx, std::ref(acceptor) ).detach();
+
+    io_ctx->run();
+}
+
 
 template<typename T>
 void client_thread(connection& conn, std::string address, uint16_t port)
