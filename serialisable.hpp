@@ -117,7 +117,7 @@ namespace serialise_mode
                                     ctx.stagger_stack--;\
                             }\
                             \
-                        } catch(const std::exception& e) {printf("Serialise Exception %s, key: %s", e.what(), #x); throw; } } while(0);
+                        } catch(const std::exception& e) {printf("Serialise Exception %s, key: %s ", e.what(), #x); throw; } } while(0);
 
 #define DO_SERIALISE_INTERPOLATE_IMPL(obj, x, mode) do{ \
                             static uint32_t my_id##_x = id_counter2++; \
