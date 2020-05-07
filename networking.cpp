@@ -321,38 +321,63 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
         sf::sleep(sf::milliseconds(1));;
     }
 }*/
-void server(std::shared_ptr<boost::asio::io_context> const& io_ctx, tcp::acceptor& a) {
-    //print( tag(), ": echo-server started");
+
+void session(std::shared_ptr<tcp::socket> sock) {
     try {
         for (;;) {
-            std::shared_ptr<tcp::socket> socket( new tcp::socket( * io_ctx) );
+            char data[1024*1024];
             boost::system::error_code ec;
-            a.async_accept(
-                    * socket,
-                    boost::fibers::asio::yield[ec]);
-            if ( ec) {
-                throw boost::system::system_error( ec); //some other error
-            } else {
-                //boost::fibers::fiber( session, socket).detach();
+            std::size_t length = sock->async_read_some(boost::asio::buffer(data), boost::fibers::asio::yield[ec]);
+            if(ec == boost::asio::error::eof) {
+                break; //connection closed cleanly by peer
+            } else if(ec) {
+                throw boost::system::system_error(ec); //some other error
+            }
+            //print(tag(), ": handled: ", std::string(data, length));
+            boost::asio::async_write(*sock, boost::asio::buffer(data, length), boost::fibers::asio::yield[ec]);
+
+            if(ec == boost::asio::error::eof) {
+                break; //connection closed cleanly by peer
+            } else if(ec) {
+                throw boost::system::system_error(ec); //some other error
             }
         }
-    } catch ( std::exception const& ex) {
-        //print( tag(), ": caught exception : ", ex.what());
+        //print(tag(), ": connection closed");
+    } catch (std::exception const& ex) {
+        //print(tag(), ": caught exception : ", ex.what());
+    }
+}
+
+void server(std::shared_ptr<boost::asio::io_context> const& io_ctx, tcp::acceptor& a) {
+    try {
+        for (;;) {
+            std::shared_ptr<tcp::socket> socket(new tcp::socket(*io_ctx));
+
+            boost::system::error_code ec;
+            a.async_accept(*socket, boost::fibers::asio::yield[ec]);
+
+            if(ec) {
+                throw boost::system::system_error(ec); //some other error
+            } else {
+                boost::fibers::fiber(session, socket).detach();
+            }
+        }
+    } catch (std::exception const& ex) {
+
     }
     io_ctx->stop();
-    //print( tag(), ": echo-server stopped");
 }
 
 template<typename T>
 void server_thread(connection& conn, std::string saddress, uint16_t port)
 {
     std::shared_ptr< boost::asio::io_context > io_ctx = std::make_shared< boost::asio::io_context >();
-    boost::fibers::use_scheduling_algorithm< boost::fibers::asio::round_robin >( io_ctx);
+    boost::fibers::use_scheduling_algorithm< boost::fibers::asio::round_robin >(io_ctx);
 
     tcp::acceptor acceptor(*io_ctx, tcp::endpoint(tcp::v4(), port));
     acceptor.set_option(boost::asio::socket_base::reuse_address(true));
 
-    boost::fibers::fiber( server, io_ctx, std::ref(acceptor) ).detach();
+    boost::fibers::fiber(server, io_ctx, std::ref(acceptor) ).detach();
 
     io_ctx->run();
 }
