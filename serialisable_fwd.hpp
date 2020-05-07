@@ -17,17 +17,17 @@
 #define SERIALISE_SIGNATURE(x) \
     static inline uint32_t id_counter = 0;\
     static inline uint32_t id_counter2 = 0;\
-    void serialise(serialise_context& ctx, nlohmann::json& data, x* other = nullptr)
+    void serialise(serialise_context& ctx, nlohmann::json& json_data, x* other = nullptr)
 
 #define SERIALISE_SIGNATURE_SIMPLE(x) SERIALISE_SIGNATURE(x)
 
 #define SERIALISE_SIGNATURE_NOSMOOTH(x) \
     static inline uint32_t id_counter = 0;\
-    void serialise(serialise_context& ctx, nlohmann::json& data, x* other = nullptr)
+    void serialise(serialise_context& ctx, nlohmann::json& json_data, x* other = nullptr)
 
 #define DECLARE_SERIALISE_FUNCTION(x) \
 struct x; \
-void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other)
+void serialise_base(x* me, serialise_context& ctx, nlohmann::json& json_data, x* other)
 
 /*template<> inline constexpr bool is_serialisable<x>(){return true;}\
 template<> inline constexpr bool is_free_function<x>(){return true;}\
@@ -39,11 +39,11 @@ template<> inline constexpr bool is_owned<x>(){return true;}\
 template<> inline constexpr bool is_owned<x>(){return true;}\*/
 
 #define DEFINE_SERIALISE_FUNCTION(x) \
-void serialise_base(x* me, serialise_context& ctx, nlohmann::json& data, x* other)
+void serialise_base(x* me, serialise_context& ctx, nlohmann::json& json_data, x* other)
 
 #define SERIALISE_SETUP() [[maybe_unused]] static uint32_t id_counter = 0; [[maybe_unused]] static uint32_t id_counter2 = 0;
 
-#define SERIALISE_BODY(x) void x::serialise(serialise_context& ctx, nlohmann::json& data, x* other)
+#define SERIALISE_BODY(x) void x::serialise(serialise_context& ctx, nlohmann::json& json_data, x* other)
 #define SERIALISE_BODY_SIMPLE(x) SERIALISE_BODY(x)
 
 #define DECLARE_FRIENDLY_RPC(x, ...) void x##_rpc(__VA_ARGS__);
