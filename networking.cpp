@@ -577,7 +577,7 @@ void session(connection& conn, std::shared_ptr<tcp::socket> in)
     int64_t id = conn.id++;
 
     {
-        std::unique_lock guard(conn.mut);
+        std::scoped_lock guard(conn.mut);
 
         conn.new_clients.push_back(id);
         conn.connected_clients.push_back(id);
@@ -594,7 +594,7 @@ void session(connection& conn, std::shared_ptr<tcp::socket> in)
     }
 
     {
-        std::unique_lock guard(conn.mut);
+        std::scoped_lock guard(conn.mut);
 
         for(int i=0; i < (int)conn.connected_clients.size(); i++)
         {
@@ -1269,12 +1269,35 @@ std::optional<uint64_t> connection::has_disconnected_client()
     return std::nullopt;
 }
 
+template<typename T>
+inline
+void conditional_erase(T& in, int id)
+{
+    auto it = in.find(id);
+
+    if(it == in.end())
+        return;
+
+    in.erase(it);
+}
+
 void connection::pop_disconnected_client()
 {
     std::lock_guard guard(disconnected_lock);
 
     if(disconnected_clients.size() == 0)
         throw std::runtime_error("No disconnected clients");
+
+    int id = *disconnected_clients.begin();
+
+    {
+        std::scoped_lock guard(mut);
+
+        conditional_erase(directed_write_queue, id);
+        conditional_erase(directed_write_lock, id);
+        conditional_erase(fine_read_queue, id);
+        conditional_erase(fine_read_lock, id);
+    }
 
     disconnected_clients.erase(disconnected_clients.begin());
 }
