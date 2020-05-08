@@ -401,7 +401,11 @@ socket_data<T> make_socket_data(std::shared_ptr<tcp::socket> socket)
 
         wps->next_layer().next_layer().set_option(nagle);
 
-        wps->next_layer().handshake(ssl::stream_base::server);
+        boost::system::error_code ec;
+        wps->next_layer().async_handshake(ssl::stream_base::server, boost::fibers::asio::yield[ec]);
+
+        if(ec)
+            throw boost::system::system_error(ec);
     }
 
     assert(wps != nullptr);
@@ -425,7 +429,7 @@ socket_data<T> make_socket_data(std::shared_ptr<tcp::socket> socket)
     ws.async_accept(boost::fibers::asio::yield[ec]);
 
     if(ec)
-        throw boost::system::system_error( ec);
+        throw boost::system::system_error(ec);
 
     ret.wps = wps;
 
