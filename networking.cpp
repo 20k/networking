@@ -532,11 +532,13 @@ void read_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
             ndata.data = std::move(next);
             ndata.id = id;
 
-            std::lock_guard guard(mutex);
+            {
+                std::lock_guard guard(mutex);
 
-            queue.push_back(ndata);
+                queue.push_back(ndata);
 
-            buffer = decltype(buffer)();
+                buffer = decltype(buffer)();
+            }
 
             boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
         }
