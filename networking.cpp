@@ -552,7 +552,16 @@ void read_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
 template<typename T>
 void session(connection& conn, std::shared_ptr<tcp::socket> in)
 {
-    socket_data<T> sock = make_socket_data<T>(in);
+    socket_data<T> sock;
+
+    try
+    {
+        sock = make_socket_data<T>(in);
+    }
+    catch(...)
+    {
+        return;
+    }
 
     int64_t id = conn.id++;
 
@@ -591,6 +600,7 @@ void session(connection& conn, std::shared_ptr<tcp::socket> in)
         std::lock_guard guard(conn.disconnected_lock);
         conn.disconnected_clients.push_back(id);
     }
+
 }
 
 template<typename T>
