@@ -420,7 +420,12 @@ socket_data<T> make_socket_data(std::shared_ptr<tcp::socket> socket)
 
     ws.set_option(opt);
 
-    ws.accept();
+    //ws.accept();
+    boost::system::error_code ec;
+    ws.async_accept(boost::fibers::asio::yield[ec]);
+
+    if(ec)
+        throw boost::system::system_error( ec);
 
     ret.wps = wps;
 
