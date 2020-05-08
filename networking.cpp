@@ -628,13 +628,13 @@ void sleeper()
 template<typename T>
 void server_thread(connection& conn, std::string saddress, uint16_t port)
 {
-    auto const address = boost::asio::ip::make_address(saddress);
+    //auto const address = boost::asio::ip::make_address(saddress);
 
     std::shared_ptr< boost::asio::io_context > io_ctx = std::make_shared< boost::asio::io_context >();
     boost::fibers::use_scheduling_algorithm< boost::fibers::asio::round_robin >(io_ctx);
 
-    tcp::acceptor acceptor{*io_ctx, {address, port}};
-    //tcp::acceptor acceptor(*io_ctx, tcp::endpoint(tcp::v4(), port));
+    //tcp::acceptor acceptor{*io_ctx, {address, port}};
+    tcp::acceptor acceptor(*io_ctx, tcp::endpoint(tcp::v4(), port));
     acceptor.set_option(boost::asio::socket_base::reuse_address(true));
 
     boost::fibers::fiber(sleeper).detach();
