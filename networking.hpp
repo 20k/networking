@@ -10,6 +10,7 @@
 #include <optional>
 #include <atomic>
 #include <map>
+#include <set>
 
 #ifndef NO_SERIALISATION
 #include "serialisable.hpp"
@@ -59,6 +60,8 @@ struct connection
     write_data read_from();
     //std::string read();
     void pop_read(uint64_t id);
+
+    void force_disconnect(uint64_t id);
 
     static inline thread_local int thread_is_client = 0;
     static inline thread_local int thread_is_server = 0;
@@ -121,6 +124,9 @@ struct connection
 
     std::mutex disconnected_lock;
     std::vector<uint64_t> disconnected_clients;
+
+    std::mutex force_disconnection_lock;
+    std::set<uint64_t> force_disconnection_queue;
 
     std::atomic_int client_connected_to_server{0};
     std::atomic_bool should_terminate{false};

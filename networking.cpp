@@ -586,6 +586,28 @@ void read_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
     term++;
 }
 
+void disconnect_fiber(connection& conn, int id, int& term)
+{
+    while(term == 0)
+    {
+        {
+            std::scoped_lock guard(conn.force_disconnection_lock);
+
+            auto it = conn.force_disconnection_queue.find(id);
+
+            if(it != conn.force_disconnection_queue.end())
+            {
+                conn.force_disconnection_queue.erase(it);
+                break;
+            }
+        }
+
+        boost::this_fiber::sleep_for(std::chrono::milliseconds(500));
+    }
+
+    term++;
+}
+
 template<typename T>
 void session(connection& conn, std::shared_ptr<tcp::socket> in, int& session_count)
 {
@@ -611,13 +633,18 @@ void session(connection& conn, std::shared_ptr<tcp::socket> in, int& session_cou
 
     int should_term = 0;
 
-    boost::fibers::fiber(read_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term)).detach();
-    boost::fibers::fiber(write_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term)).detach();
+    boost::fibers::fiber f1(read_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
+    boost::fibers::fiber f2(write_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
+    boost::fibers::fiber f3(disconnect_fiber, std::ref(conn), id, std::ref(should_term));
 
-    while(should_term != 2)
+    /*while(should_term != 3)
     {
         boost::this_fiber::sleep_for(std::chrono::milliseconds(32));
-    }
+    }*/
+
+    f1.join();
+    f2.join();
+    f3.join();
 
     {
         std::scoped_lock guard(conn.mut);
@@ -1267,6 +1294,13 @@ void connection::pop_read(uint64_t id)
     read_queue.erase(read_queue.begin());*/
 }
 
+void connection::force_disconnect(uint64_t id)
+{
+    std::scoped_lock guard(force_disconnection_lock);
+
+    force_disconnection_queue.insert(id);
+}
+
 void connection::write_to(const write_data& data)
 {
     std::vector<write_data>* write_dat = nullptr;
@@ -1322,23 +1356,36 @@ void conditional_erase(T& in, int id)
 
 void connection::pop_disconnected_client()
 {
-    std::lock_guard guard(disconnected_lock);
-
-    if(disconnected_clients.size() == 0)
-        throw std::runtime_error("No disconnected clients");
-
-    int id = *disconnected_clients.begin();
+    int id;
 
     {
-        std::scoped_lock guard(mut);
+        std::lock_guard guard(disconnected_lock);
 
-        conditional_erase(directed_write_queue, id);
-        conditional_erase(directed_write_lock, id);
-        conditional_erase(fine_read_queue, id);
-        conditional_erase(fine_read_lock, id);
+        if(disconnected_clients.size() == 0)
+            throw std::runtime_error("No disconnected clients");
+
+        id = *disconnected_clients.begin();
+
+        {
+            std::scoped_lock guard(mut);
+
+            conditional_erase(directed_write_queue, id);
+            conditional_erase(directed_write_lock, id);
+            conditional_erase(fine_read_queue, id);
+            conditional_erase(fine_read_lock, id);
+        }
+
+        disconnected_clients.erase(disconnected_clients.begin());
     }
 
-    disconnected_clients.erase(disconnected_clients.begin());
+    {
+        std::lock_guard guard(force_disconnection_lock);
+
+        auto it = force_disconnection_queue.find(id);
+
+        if(it != force_disconnection_queue.end())
+            force_disconnection_queue.erase(it);
+    }
 }
 
 void connection::pop_new_client()
