@@ -681,7 +681,6 @@ void sleeper()
     {
         sf::sleep(sf::milliseconds(1));
         boost::this_fiber::sleep_for(std::chrono::milliseconds(16));
-        printf("Sleep\n");
     }
 }
 
