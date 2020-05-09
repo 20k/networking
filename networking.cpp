@@ -629,7 +629,9 @@ void server(connection& conn, std::shared_ptr<boost::asio::io_context> const& io
                 boost::fibers::fiber(session<T>, std::ref(conn), socket).detach();
             }
 
-            sf::sleep(sf::milliseconds(1));
+
+
+            //sf::sleep(sf::milliseconds(1));
         }
     } catch (std::exception const& ex) {
 
@@ -643,6 +645,7 @@ void sleeper()
     {
         sf::sleep(sf::milliseconds(1));
         boost::this_fiber::sleep_for(std::chrono::milliseconds(16));
+        printf("Sleep\n");
     }
 }
 
@@ -1145,7 +1148,7 @@ void connection::write(const std::string& data)
 
 bool connection::has_read()
 {
-    std::shared_lock guard(mut);
+    std::scoped_lock guard(mut);
 
     for(auto& i : fine_read_queue)
     {
@@ -1170,7 +1173,7 @@ write_data connection::read_from()
     ///there's a version of this function that could be written
     ///where mut is not held all the time
 
-    std::shared_lock guard(mut);
+    std::scoped_lock guard(mut);
 
     ///check through queue, basically round robins people based on ids
     for(auto& i : fine_read_queue)
@@ -1247,7 +1250,7 @@ void connection::write_to(const write_data& data)
 
 std::optional<uint64_t> connection::has_new_client()
 {
-    std::shared_lock guard(mut);
+    std::scoped_lock guard(mut);
 
     for(auto& i : new_clients)
     {
@@ -1314,7 +1317,7 @@ void connection::pop_new_client()
 
 std::vector<uint64_t> connection::clients()
 {
-    std::shared_lock guard(mut);
+    std::scoped_lock guard(mut);
 
     return connected_clients;
 }
