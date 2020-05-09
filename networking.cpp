@@ -667,7 +667,7 @@ void server(connection& conn, std::shared_ptr<boost::asio::io_context> const& io
                 boost::fibers::fiber(session<T>, std::ref(conn), socket, std::ref(session_count)).detach();
             }
 
-            sf::sleep(sf::milliseconds(1));
+            boost::this_fiber::sleep_for(std::chrono::milliseconds(16));
         }
     } catch (std::exception const& ex) {
 
