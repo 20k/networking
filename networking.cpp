@@ -395,7 +395,7 @@ socket_data<T> make_socket_data(std::shared_ptr<tcp::socket> socket)
     {
         wps = std::shared_ptr<T>(new T{std::move(*socket)});
         wps->text(false);
-        wps->set_option(stream_base::timeout::suggested(role_type::server));
+        wps->set_option(websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
 
         wps->next_layer().set_option(nagle);
     }
@@ -423,7 +423,7 @@ socket_data<T> make_socket_data(std::shared_ptr<tcp::socket> socket)
 
         wps = std::shared_ptr<T>(new T{std::move(*socket), *ret.ctx});
         wps->text(false);
-        wps->set_option(stream_base::timeout::suggested(role_type::server));
+        wps->set_option(websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
 
         wps->next_layer().next_layer().set_option(nagle);
 
@@ -443,8 +443,6 @@ socket_data<T> make_socket_data(std::shared_ptr<tcp::socket> socket)
     {
         res.insert(boost::beast::http::field::sec_websocket_protocol, "binary");
     }));
-
-    ws.set_option(opt);
 
     boost::beast::websocket::permessage_deflate opt;
     opt.server_enable = true;
