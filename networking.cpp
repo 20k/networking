@@ -59,10 +59,13 @@ std::string read_file_bin(const std::string& file)
     return str;
 }
 
-#if 0
+#ifdef CONNECTION_PER_THREAD
 template<typename T>
-void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::socket& socket)
+void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp::socket* psocket)
 {
+    auto& socket_ioc = *psocket_ioc;
+    auto& socket = *psocket;
+
     uint64_t id = -1;
     T* wps = nullptr;
     ssl::context ctx{ssl::context::sslv23};
@@ -296,10 +299,12 @@ void server_session(connection& conn, boost::asio::io_context& socket_ioc, tcp::
         std::lock_guard guard(conn.disconnected_lock);
         conn.disconnected_clients.push_back(id);
     }
-}
-#endif // 0
 
-/*template<typename T>
+    delete psocket;
+    delete psocket_ioc;
+}
+
+template<typename T>
 void server_thread(connection& conn, std::string saddress, uint16_t port)
 {
     auto const address = boost::asio::ip::make_address(saddress);
@@ -312,17 +317,34 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 
     while(1)
     {
-        boost::asio::io_context* next_context = new boost::asio::io_context{1};
+        boost::asio::io_context* next_context = nullptr;
+        tcp::socket* socket = nullptr;
 
-        tcp::socket* socket = new tcp::socket{*next_context};
+        try
+        {
+            next_context = new boost::asio::io_context{1};
+            socket = new tcp::socket{*next_context};
 
-        acceptor.accept(*socket);
+            acceptor.accept(*socket);
+        }
+        catch(...)
+        {
+            if(socket)
+                delete socket;
 
-        std::thread(server_session<T>, std::ref(conn), std::ref(*next_context), std::ref(*socket)).detach();
+            if(next_context)
+                delete next_context;
+
+            sf::sleep(sf::milliseconds(1));
+            continue;
+        }
+
+        std::thread(server_session<T>, std::ref(conn), next_context, socket).detach();
 
         sf::sleep(sf::milliseconds(1));;
     }
-}*/
+}
+#endif // CONNECTION_PER_THREAD
 
 /*template<typename T>
 void session(std::shared_ptr<tcp::socket> sock) {
@@ -351,6 +373,8 @@ void session(std::shared_ptr<tcp::socket> sock) {
     }
 }*/
 
+#define ONE_FIBER_THREAD
+#ifdef ONE_FIBER_THREAD
 template<typename T>
 struct socket_data
 {
@@ -371,6 +395,7 @@ socket_data<T> make_socket_data(std::shared_ptr<tcp::socket> socket)
     {
         wps = std::shared_ptr<T>(new T{std::move(*socket)});
         wps->text(false);
+        wps->set_option(stream_base::timeout::suggested(role_type::server));
 
         wps->next_layer().set_option(nagle);
     }
@@ -398,6 +423,7 @@ socket_data<T> make_socket_data(std::shared_ptr<tcp::socket> socket)
 
         wps = std::shared_ptr<T>(new T{std::move(*socket), *ret.ctx});
         wps->text(false);
+        wps->set_option(stream_base::timeout::suggested(role_type::server));
 
         wps->next_layer().next_layer().set_option(nagle);
 
@@ -417,6 +443,8 @@ socket_data<T> make_socket_data(std::shared_ptr<tcp::socket> socket)
     {
         res.insert(boost::beast::http::field::sec_websocket_protocol, "binary");
     }));
+
+    ws.set_option(opt);
 
     boost::beast::websocket::permessage_deflate opt;
     opt.server_enable = true;
@@ -561,7 +589,7 @@ void read_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
 }
 
 template<typename T>
-void session(connection& conn, std::shared_ptr<tcp::socket> in)
+void session(connection& conn, std::shared_ptr<tcp::socket> in, int& session_count)
 {
     socket_data<T> sock;
 
@@ -612,26 +640,36 @@ void session(connection& conn, std::shared_ptr<tcp::socket> in)
         conn.disconnected_clients.push_back(id);
     }
 
+    session_count--;
 }
 
 template<typename T>
 void server(connection& conn, std::shared_ptr<boost::asio::io_context> const& io_ctx, tcp::acceptor& a) {
     try {
+        int max_sessions = 256;
+        int session_count = 0;
+
         for (;;) {
+
+            /*while(session_count >= max_sessions)
+            {
+                boost::this_fiber::sleep_for(std::chrono::seconds(1));
+            }*/
+
             std::shared_ptr<tcp::socket> socket(new tcp::socket(*io_ctx));
 
             boost::system::error_code ec;
             a.async_accept(*socket, boost::fibers::asio::yield[ec]);
 
+            session_count++;
+
             if(ec) {
                 throw boost::system::system_error(ec); //some other error
             } else {
-                boost::fibers::fiber(session<T>, std::ref(conn), socket).detach();
+                boost::fibers::fiber(session<T>, std::ref(conn), socket, std::ref(session_count)).detach();
             }
 
-
-
-            //sf::sleep(sf::milliseconds(1));
+            sf::sleep(sf::milliseconds(1));
         }
     } catch (std::exception const& ex) {
 
@@ -666,6 +704,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 
     io_ctx->run();
 }
+#endif // 0
 
 
 template<typename T>
