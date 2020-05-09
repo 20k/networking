@@ -586,7 +586,8 @@ void read_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
     term++;
 }
 
-void disconnect_fiber(connection& conn, int id, int& term)
+template<typename T>
+void disconnect_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
 {
     while(term == 0)
     {
@@ -597,6 +598,12 @@ void disconnect_fiber(connection& conn, int id, int& term)
 
             if(it != conn.force_disconnection_queue.end())
             {
+                try
+                {
+                    boost::beast::get_lowest_layer(*sock.wps).close();
+                }
+                catch(...){}
+
                 conn.force_disconnection_queue.erase(it);
                 break;
             }
@@ -635,7 +642,7 @@ void session(connection& conn, std::shared_ptr<tcp::socket> in, int& session_cou
 
     boost::fibers::fiber f1(read_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
     boost::fibers::fiber f2(write_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
-    boost::fibers::fiber f3(disconnect_fiber, std::ref(conn), id, std::ref(should_term));
+    boost::fibers::fiber f3(disconnect_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
 
     /*while(should_term != 3)
     {
