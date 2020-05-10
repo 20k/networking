@@ -7,7 +7,6 @@
 #include <map>
 
 #include "serialisable_fwd.hpp"
-#include <ndb/db_storage.hpp>
 #include "netinterpolate.hpp"
 
 #ifdef SERIALISE_ENTT
@@ -1543,68 +1542,5 @@ void serialisable_clone(T& one, T& into)
 }
 
 void serialise_tests();
-
-template<typename T>
-inline
-void serialise_to_db(const std::string& key, T& in, db_read_write& tx)
-{
-    nlohmann::json data = serialise(in, serialise_mode::DISK);
-
-    auto vec = nlohmann::json::to_cbor(data);
-
-    if(vec.size() > 0)
-    {
-        std::string_view view((const char*)&vec[0], vec.size());
-
-        tx.write(key, view);
-    }
-    else
-    {
-        tx.write(key, "");
-    }
-}
-
-template<typename T>
-inline
-bool serialise_from_db(const std::string& key, T& in, db_read& tx)
-{
-    std::optional<db_data> data = tx.read(key);
-
-    if(!data)
-        return false;
-
-    nlohmann::json js = nlohmann::json::from_cbor(data.value().data);
-
-    deserialise(js, in, serialise_mode::DISK);
-
-    return true;
-}
-
-///keep db dirty state so we can defer
-
-template<typename T>
-struct db_storable
-{
-    std::string key;
-
-    void save(db_read_write& tx)
-    {
-        serialise_to_db(key, static_cast<T&>(*this), tx);
-    }
-
-    bool load(const std::string& _key, db_read& tx)
-    {
-        key = _key;
-
-        return serialise_from_db(key, static_cast<T&>(*this), tx);
-    }
-
-    void del(db_read_write& tx)
-    {
-        tx.del(key);
-    }
-};
-
-#define DB_PERSIST_ID 2
 
 #endif // SERIALISABLE_HPP_INCLUDED
