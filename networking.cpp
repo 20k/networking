@@ -510,10 +510,7 @@ void write_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
                 if(ec == boost::asio::error::eof)
                     break;
                 else if(ec)
-                {
-                    printf("Got error code\n");
                     break;
-                }
             }
 
             boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
@@ -556,10 +553,7 @@ void read_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
             if(ec == boost::asio::error::eof)
                 break;
             else if(ec)
-            {
-                printf("Got error code\n");
                 break;
-            }
 
             std::string next = boost::beast::buffers_to_string(buffer.data());
 
@@ -714,7 +708,7 @@ void sleeper()
     while(1)
     {
         sf::sleep(sf::milliseconds(1));
-        boost::this_fiber::sleep_for(std::chrono::milliseconds(16));
+        boost::this_fiber::sleep_for(std::chrono::milliseconds(512));
     }
 }
 
