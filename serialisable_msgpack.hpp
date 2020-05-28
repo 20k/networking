@@ -3,6 +3,7 @@
 
 #include <msgpack.h>
 #include <cstdint>
+#include <cmath>
 #include "serialisable.hpp"
 
 /*#define DO_MSG_FSERIALISE_BASE(obj, x)  std::string_view my_name = #x;\
@@ -23,6 +24,8 @@
 
 #define CHECK_THROW(x) do{if(auto rval = (x); rval != 0) { throw std::runtime_error("Serialisation failed " + std::to_string(rval)); } } while(0)
 
+///todo: define a new serialsie_context class
+
 struct serialise_msgpack
 {
 
@@ -30,6 +33,19 @@ struct serialise_msgpack
 
 void do_serialise(serialise_context& ctx, msgpack_object* obj, std::string& in);
 void do_serialise(serialise_context& ctx, msgpack_object* obj, const char* in);
+
+template<typename T>
+inline
+void set_nan_to_0(T& in)
+{
+    if constexpr(std::is_floating_point_v<T>)
+    {
+        if(!std::isfinite(in))
+        {
+            in = 0;
+        }
+    }
+}
 
 template<typename T, typename name_type>
 inline
@@ -165,6 +181,8 @@ void do_serialise(serialise_context& ctx, msgpack_object* obj, T& in)
             else
             {
                 in = obj->via.f64;
+
+                set_nan_to_0(in);
             }
         }
 
@@ -246,19 +264,28 @@ void do_serialise(serialise_context& ctx, msgpack_object* obj, std::optional<T>&
     if(ctx.encode)
     {
         if(!in.has_value())
-            return;
-
-        do_serialise(ctx, nullptr, in.value());
+        {
+            msgpack_pack_nil(&ctx.pk);
+        }
+        else
+        {
+            do_serialise(ctx, nullptr, in.value());
+        }
     }
     else
     {
-        in = std::nullopt;
+        if(obj->type == msgpack_object_type::MSGPACK_OBJECT_NIL)
+        {
+            in = std::nullopt;
+        }
+        else
+        {
+            T val = T();
 
-        T val = T();
+            do_serialise(ctx, obj, val);
 
-        do_serialise(ctx, obj, val);
-
-        in = val;
+            in = val;
+        }
     }
 }
 
@@ -277,6 +304,8 @@ void do_serialise(serialise_context& ctx, msgpack_object* obj, std::array<T, N>&
     }
     else
     {
+        in = decltype(in)();
+
         uint32_t len = obj->via.array.size;
 
         uint32_t min_len = std::min(len, (uint32_t)N);
