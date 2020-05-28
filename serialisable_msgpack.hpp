@@ -263,7 +263,7 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, vec<N, T>
     }
 }
 
-template<int N, typename T>
+template<typename T>
 inline
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::optional<T>& in)
 {
