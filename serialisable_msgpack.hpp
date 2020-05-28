@@ -36,7 +36,7 @@ void do_serialise(serialise_context& ctx, msgpack_object* obj, const char* in);
 
 template<typename T>
 inline
-void set_nan_to_0(T& in)
+void set_unfinite_to_0(T& in)
 {
     if constexpr(std::is_floating_point_v<T>)
     {
@@ -182,7 +182,7 @@ void do_serialise(serialise_context& ctx, msgpack_object* obj, T& in)
             {
                 in = obj->via.f64;
 
-                set_nan_to_0(in);
+                set_unfinite_to_0(in);
             }
         }
 
