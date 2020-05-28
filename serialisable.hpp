@@ -323,11 +323,6 @@ struct serialise_context
     nlohmann::json data;
     nlohmann::json faux; ///fake nlohmann
 
-    #ifdef USE_MSGPACK
-    msgpack_sbuffer sbuf;
-    msgpack_packer pk;
-    #endif // USE_MSGPACK
-
     serialise_mode::type mode = serialise_mode::NETWORK;
 
     bool encode = false;
@@ -354,22 +349,6 @@ struct serialise_context
     owned* get_by_id_ptr = nullptr; ///well, this is bad!
 
     bool update_interpolation = false;
-
-    serialise_context()
-    {
-        #ifdef USE_MSGPACK
-        msgpack_sbuffer_init(&sbuf);
-        msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
-        #endif // USE_MSGPACK
-    }
-
-    ~serialise_context()
-    {
-        #ifdef USE_MSGPACK
-        //msgpack_packer_free(&pk);
-        msgpack_sbuffer_destroy(&sbuf);
-        #endif // USE_MSGPACK
-    }
 };
 
 template<typename T>

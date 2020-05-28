@@ -4,18 +4,31 @@
 #include <msgpack.h>
 #include <cstdint>
 #include <cmath>
-#include "serialisable.hpp"
+#include <vec/vec.hpp>
+#include <vector>
+#include <map>
+#include <optional>
 
-/*#define DO_MSG_FSERIALISE_BASE(obj, x)  std::string_view my_name = #x;\
-                                        if(ctx.serialisation) \
-                                        { \
-                                            \
-                                        }
+#include "serialisable_msgpack_fwd.hpp"
 
+struct serialise_context_msgpack
+{
+    bool encode = true;
 
-#define DO_MSG_FSERAILISE(x) DO_MSG_FSERIALISE_BASE(me, x)*/
+    msgpack_sbuffer sbuf;
+    msgpack_packer pk;
 
-#define DECLARE_MSG_FSERIALISE(x) void serialise_base(x& me, serialise_context& ctx, msgpack_object* obj)
+    serialise_context_msgpack()
+    {
+        msgpack_sbuffer_init(&sbuf);
+        msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
+    }
+
+    ~serialise_context_msgpack()
+    {
+        msgpack_sbuffer_destroy(&sbuf);
+    }
+};
 
 #define SETUP_MSG_FSERIALISE(cnt)  CHECK_THROW(msgpack_pack_map(&ctx.pk, cnt));
 
@@ -24,15 +37,8 @@
 
 #define CHECK_THROW(x) do{if(auto rval = (x); rval != 0) { throw std::runtime_error("Serialisation failed " + std::to_string(rval)); } } while(0)
 
-///todo: define a new serialsie_context class
-
-struct serialise_msgpack
-{
-
-};
-
-void do_serialise(serialise_context& ctx, msgpack_object* obj, std::string& in);
-void do_serialise(serialise_context& ctx, msgpack_object* obj, const char* in);
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::string& in);
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, const char* in);
 
 template<typename T>
 inline
@@ -49,7 +55,7 @@ void set_unfinite_to_0(T& in)
 
 template<typename T, typename name_type>
 inline
-void touch_member_base(serialise_context& ctx, msgpack_object* obj, T& in, int id, name_type name)
+void touch_member_base(serialise_context_msgpack& ctx, msgpack_object* obj, T& in, int id, name_type name)
 {
     if(ctx.encode)
     {
@@ -88,7 +94,7 @@ void touch_member_base(serialise_context& ctx, msgpack_object* obj, T& in, int i
 
 template<typename T>
 inline
-void do_serialise(serialise_context& ctx, msgpack_object* obj, T& in)
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
 {
     if(ctx.encode)
     {
@@ -190,7 +196,7 @@ void do_serialise(serialise_context& ctx, msgpack_object* obj, T& in)
 }
 
 inline
-void do_serialise(serialise_context& ctx, msgpack_object* obj, std::string& in)
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::string& in)
 {
     if(ctx.encode)
     {
@@ -212,7 +218,7 @@ void do_serialise(serialise_context& ctx, msgpack_object* obj, std::string& in)
 }
 
 inline
-void do_serialise(serialise_context& ctx, msgpack_object* obj, const char* in)
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, const char* in)
 {
     if(ctx.encode)
     {
@@ -230,7 +236,7 @@ void do_serialise(serialise_context& ctx, msgpack_object* obj, const char* in)
 
 template<int N, typename T>
 inline
-void do_serialise(serialise_context& ctx, msgpack_object* obj, vec<N, T>& in)
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, vec<N, T>& in)
 {
     if(ctx.encode)
     {
@@ -259,7 +265,7 @@ void do_serialise(serialise_context& ctx, msgpack_object* obj, vec<N, T>& in)
 
 template<int N, typename T>
 inline
-void do_serialise(serialise_context& ctx, msgpack_object* obj, std::optional<T>& in)
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::optional<T>& in)
 {
     if(ctx.encode)
     {
@@ -291,7 +297,7 @@ void do_serialise(serialise_context& ctx, msgpack_object* obj, std::optional<T>&
 
 template<typename T, std::size_t N>
 inline
-void do_serialise(serialise_context& ctx, msgpack_object* obj, std::array<T, N>& in)
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::array<T, N>& in)
 {
     if(ctx.encode)
     {
@@ -319,7 +325,7 @@ void do_serialise(serialise_context& ctx, msgpack_object* obj, std::array<T, N>&
 
 template<typename T>
 inline
-void do_serialise(serialise_context& ctx, msgpack_object* obj, std::vector<T>& in)
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::vector<T>& in)
 {
     if(ctx.encode)
     {
@@ -347,7 +353,7 @@ void do_serialise(serialise_context& ctx, msgpack_object* obj, std::vector<T>& i
 
 template<typename T, typename U>
 inline
-void do_serialise(serialise_context& ctx, msgpack_object* obj, std::map<T, U>& in)
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::map<T, U>& in)
 {
     if(ctx.encode)
     {
@@ -384,10 +390,8 @@ template<typename T>
 inline
 std::string serialise_msg(T& in)
 {
-    serialise_context ctx;
+    serialise_context_msgpack ctx;
     ctx.encode = true;
-    ctx.serialisation = true;
-    ctx.mode = serialise_mode::DISK;
 
     try
     {
@@ -409,10 +413,8 @@ template<typename T>
 inline
 T deserialise_msg(const std::string& in)
 {
-    serialise_context ctx;
+    serialise_context_msgpack ctx;
     ctx.encode = false;
-    ctx.serialisation = true;
-    ctx.mode = serialise_mode::DISK;
 
     msgpack_zone mempool;
     msgpack_zone_init(&mempool, 2048);
