@@ -118,73 +118,87 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
         {
             serialise_base(in, ctx, obj);
         }
-
-        else if constexpr(std::is_same_v<bool, T>)
-        {
-            int8_t val = in;
-
-            CHECK_THROW(msgpack_pack_signed_char(&ctx.pk, val));
-        }
-
-        else if constexpr(std::is_same_v<std::int8_t, T>)
-        {
-            CHECK_THROW(msgpack_pack_signed_char(&ctx.pk, in));
-        }
-
-        else if constexpr(std::is_same_v<std::uint8_t, T>)
-        {
-            CHECK_THROW(msgpack_pack_unsigned_char(&ctx.pk, in));
-        }
-
-        else if constexpr(std::is_same_v<std::int16_t, T>)
-        {
-            CHECK_THROW(msgpack_pack_int16(&ctx.pk, in));
-        }
-
-        else if constexpr(std::is_same_v<std::uint16_t, T>)
-        {
-            CHECK_THROW(msgpack_pack_uint16(&ctx.pk, in));
-        }
-
-        else if constexpr(std::is_same_v<std::int32_t, T>)
-        {
-            CHECK_THROW(msgpack_pack_int32(&ctx.pk, in));
-        }
-
-        else if constexpr(std::is_same_v<std::uint32_t, T>)
-        {
-            CHECK_THROW(msgpack_pack_uint32(&ctx.pk, in));
-        }
-
-        else if constexpr(std::is_same_v<std::int64_t, T>)
-        {
-            CHECK_THROW(msgpack_pack_int64(&ctx.pk, in));
-        }
-
-        else if constexpr(std::is_same_v<std::uint64_t, T>)
-        {
-            CHECK_THROW(msgpack_pack_uint64(&ctx.pk, in));
-        }
-
-        else if constexpr(std::is_same_v<float, T>)
-        {
-            CHECK_THROW(msgpack_pack_float(&ctx.pk, in));
-        }
-
-        else if constexpr(std::is_same_v<double, T>)
-        {
-            CHECK_THROW(msgpack_pack_double(&ctx.pk, in));
-        }
-
-        else if constexpr(std::is_enum_v<T>)
-        {
-            CHECK_THROW(msgpack_pack_int64(&ctx.pk, (int64_t)in));
-        }
-
         else
         {
-            throw std::runtime_error("well that's a mistake");
+            if constexpr(std::is_integral_v<T>)
+            {
+                constexpr bool sign = std::is_signed_v<T>;
+                constexpr int width = sizeof(T);
+
+                if constexpr(sign)
+                {
+                    if constexpr(width == 1)
+                    {
+                        CHECK_THROW(msgpack_pack_int8(&ctx.pk, in));
+                    }
+                    else if constexpr(width == 2)
+                    {
+                        CHECK_THROW(msgpack_pack_int16(&ctx.pk, in));
+                    }
+                    else if constexpr(width == 4)
+                    {
+                        CHECK_THROW(msgpack_pack_int32(&ctx.pk, in));
+                    }
+                    else if constexpr(width == 8)
+                    {
+                        CHECK_THROW(msgpack_pack_int64(&ctx.pk, in));
+                    }
+                    else
+                    {
+                        throw std::runtime_error("Bad width fun");
+                    }
+                }
+                else
+                {
+                    if constexpr(width == 1)
+                    {
+                        CHECK_THROW(msgpack_pack_uint8(&ctx.pk, in));
+                    }
+                    else if constexpr(width == 2)
+                    {
+                        CHECK_THROW(msgpack_pack_uint16(&ctx.pk, in));
+                    }
+                    else if constexpr(width == 4)
+                    {
+                        CHECK_THROW(msgpack_pack_uint32(&ctx.pk, in));
+                    }
+                    else if constexpr(width == 8)
+                    {
+                        CHECK_THROW(msgpack_pack_uint64(&ctx.pk, in));
+                    }
+                    else
+                    {
+                        throw std::runtime_error("Bad width fun2");
+                    }
+                }
+            }
+            else if constexpr(std::is_floating_point_v<T>)
+            {
+                constexpr int width = sizeof(T);
+
+                if constexpr(width == 4)
+                {
+                    CHECK_THROW(msgpack_pack_float(&ctx.pk, in));
+                }
+                else if constexpr(width == 8)
+                {
+                    CHECK_THROW(msgpack_pack_double(&ctx.pk, in));
+                }
+                else
+                {
+                    throw std::runtime_error("Bad float width");
+                }
+            }
+            else if constexpr(std::is_enum_v<T>)
+            {
+                CHECK_THROW(msgpack_pack_int64(&ctx.pk, in));
+            }
+            else
+            {
+                throw std::runtime_error("well that's a mistake");
+            }
         }
+
     }
     else
     {
