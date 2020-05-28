@@ -8,6 +8,9 @@
 #include <vector>
 #include <map>
 #include <optional>
+#include <string>
+#include <string_view>
+#include <nlohmann/json.hpp>
 
 #include "serialisable_msgpack_fwd.hpp"
 
@@ -30,15 +33,28 @@ struct serialise_context_msgpack
     }
 };
 
-#define SETUP_MSG_FSERIALISE(cnt)  CHECK_THROW(msgpack_pack_map(&ctx.pk, cnt));
+#define SETUP_MSG_FSERIALISE_SIMPLE(cnt)  CHECK_THROW(msgpack_pack_map(&ctx.pk, cnt)); int counter = 0;
 
 #define DO_MSG_FSERIALISE(x, id, name) touch_member_base(ctx, obj, me.x, id, name)
-#define DO_MSG_FSERIALISE_SIMPLE(x, id) touch_member_base(ctx, obj, me.x, id, #x)
+#define DO_MSG_FSERIALISE_SIMPLE(x) touch_member_base(ctx, obj, me.x, counter++, #x)
 
 #define CHECK_THROW(x) do{if(auto rval = (x); rval != 0) { throw std::runtime_error("Serialisation failed " + std::to_string(rval)); } } while(0)
 
+template<typename T, typename = void>
+struct has_serialisable_base_c : std::false_type{};
+
+template<typename T>
+struct has_serialisable_base_c<T, std::void_t<decltype(serialise_base(std::declval<T&>(), std::declval<serialise_context_msgpack&>(), std::declval<msgpack_object*>()))>> : std::true_type{};
+
+template<typename T>
+inline constexpr bool has_serialisable_base()
+{
+    return has_serialisable_base_c<T>::value;
+}
+
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::string& in);
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, const char* in);
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, nlohmann::json& in);
 
 template<typename T>
 inline
@@ -98,7 +114,7 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
 {
     if(ctx.encode)
     {
-        if constexpr(std::is_base_of_v<serialise_msgpack, T>)
+        if constexpr(std::is_base_of_v<serialise_msgpack, T> || has_serialisable_base<T>())
         {
             serialise_base(in, ctx, obj);
         }
@@ -160,6 +176,11 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
             CHECK_THROW(msgpack_pack_double(&ctx.pk, in));
         }
 
+        else if constexpr(std::is_enum_v<T>)
+        {
+            CHECK_THROW(msgpack_pack_int64(&ctx.pk, (int64_t)in));
+        }
+
         else
         {
             throw std::runtime_error("well that's a mistake");
@@ -167,7 +188,7 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
     }
     else
     {
-        if constexpr(std::is_base_of_v<serialise_msgpack, T>)
+        if constexpr(std::is_base_of_v<serialise_msgpack, T> || has_serialisable_base<T>())
         {
             serialise_base(in, ctx, obj);
         }
@@ -184,11 +205,19 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
                     in = obj->via.u64;
                 }
             }
-            else
+            else if constexpr(std::is_floating_point_v<T>)
             {
                 in = obj->via.f64;
 
                 set_unfinite_to_0(in);
+            }
+            else if constexpr(std::is_enum_v<T>)
+            {
+                in = (T)obj->via.i64;
+            }
+            else
+            {
+                throw std::runtime_error("Whelp");
             }
         }
 
@@ -234,6 +263,39 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, const cha
     }
 }
 
+inline
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, nlohmann::json& in)
+{
+    if(ctx.encode)
+    {
+        std::vector<uint8_t> dat = nlohmann::json::to_cbor(in);
+
+        if(dat.size() == 0)
+        {
+            CHECK_THROW(msgpack_pack_nil(&ctx.pk));
+        }
+        else
+        {
+            CHECK_THROW(msgpack_pack_bin(&ctx.pk, dat.size()));
+
+            CHECK_THROW(msgpack_pack_bin_body(&ctx.pk, &dat[0], dat.size()));
+        }
+    }
+    else
+    {
+        if(obj->type == msgpack_object_type::MSGPACK_OBJECT_NIL)
+        {
+            in = nlohmann::json();
+        }
+        else
+        {
+            std::vector<uint8_t> dat(obj->via.bin.ptr, obj->via.bin.ptr + obj->via.bin.size);
+
+            in = nlohmann::json::from_cbor(dat);
+        }
+    }
+}
+
 template<int N, typename T>
 inline
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, vec<N, T>& in)
@@ -254,11 +316,11 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, vec<N, T>
         if(len != (uint32_t)N)
             throw std::runtime_error("Bad array size");
 
-        msgpack_object_array* arr = obj->via.array.ptr;
+        msgpack_object_array arr = obj->via.array;
 
         for(int i=0; i < N; i++)
         {
-            do_serialise(ctx, arr->ptr[i], in.v[i]);
+            do_serialise(ctx, &arr.ptr[i], in.v[i]);
         }
     }
 }
@@ -310,15 +372,15 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::arra
     }
     else
     {
-        in = decltype(in)();
+        in = std::array<T, N>();
 
         uint32_t len = obj->via.array.size;
 
         uint32_t min_len = std::min(len, (uint32_t)N);
 
-        for(int i=0; i < (int)min_len; i++)
+        for(uint32_t i=0; i < min_len; i++)
         {
-            do_serialise(ctx, obj->via.array.ptr[i], in[i]);
+            do_serialise(ctx, &obj->via.array.ptr[i], in[i]);
         }
     }
 }
@@ -411,7 +473,7 @@ std::string serialise_msg(T& in)
 
 template<typename T>
 inline
-T deserialise_msg(const std::string& in)
+T deserialise_msg(std::string_view in)
 {
     serialise_context_msgpack ctx;
     ctx.encode = false;
@@ -420,7 +482,7 @@ T deserialise_msg(const std::string& in)
     msgpack_zone_init(&mempool, 2048);
 
     msgpack_object deserialized;
-    msgpack_unpack(in.c_str(), in.size(), NULL, &mempool, &deserialized);
+    msgpack_unpack(in.data(), in.size(), NULL, &mempool, &deserialized);
 
     T ret = T();
 
