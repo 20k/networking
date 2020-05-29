@@ -33,7 +33,7 @@ struct serialise_context_msgpack
     }
 };
 
-#define SETUP_MSG_FSERIALISE_SIMPLE(cnt)  CHECK_THROW(msgpack_pack_map(&ctx.pk, cnt)); int counter = 0;
+#define SETUP_MSG_FSERIALISE_SIMPLE(cnt) if(ctx.encode){ CHECK_THROW(msgpack_pack_map(&ctx.pk, cnt)); } int counter = 0;
 
 #define DO_MSG_FSERIALISE(x, id, name) touch_member_base(ctx, obj, me.x, id, name)
 #define DO_MSG_FSERIALISE_SIMPLE(x) touch_member_base(ctx, obj, me.x, counter++, #x)
