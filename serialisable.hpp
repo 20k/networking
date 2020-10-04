@@ -7,13 +7,16 @@
 #include <map>
 
 #include "serialisable_fwd.hpp"
-#include <ndb/db_storage.hpp>
 #include "netinterpolate.hpp"
 
 #ifdef SERIALISE_ENTT
 #include <entt/entt.hpp>
 #include <tuple>
 #endif // SERIALISE_ENTT
+
+#ifdef USE_MSGPACK
+#include <msgpack.h>
+#endif // USE_MSGPACK
 
 ///its going to be this kind of file
 ///if this makes you sad its not getting any better from here
@@ -51,7 +54,7 @@ namespace serialise_mode
 
 #define PID_STRING "_"
 
-#define DO_SERIALISE_BASE(obj, x, rlim, stagger) do{ \
+#define DO_SERIALISE_BASE(obj, x, rlim, stagger) do{ try{\
                             static uint32_t my_id##_x = id_counter++; \
                             static std::string s##_x = std::to_string(my_id##_x);\
                             const std::string& my_name = ctx.mode == serialise_mode::NETWORK ? s##_x : #x;\
@@ -82,7 +85,7 @@ namespace serialise_mode
                                     ctx.stagger_stack++; \
                                 \
                                 if(!skip && (other == nullptr || !ctx.encode || !serialisable_is_equal(&obj->x, fptr))) \
-                                    do_serialise(ctx, data[my_name], obj->x, fptr); \
+                                    do_serialise(ctx, json_data[my_name], obj->x, fptr); \
                                 \
                                 if(stagger == ratelimits::STAGGER) \
                                     ctx.stagger_stack--; \
@@ -117,7 +120,7 @@ namespace serialise_mode
                                     ctx.stagger_stack--;\
                             }\
                             \
-                        }while(0);
+                        } catch(const std::exception& e) { throw; } } while(0);
 
 #define DO_SERIALISE_INTERPOLATE_IMPL(obj, x, mode) do{ \
                             static uint32_t my_id##_x = id_counter2++; \
@@ -182,7 +185,7 @@ namespace serialise_mode
 }
 
 #ifdef SERIALISE_ENTT
-#define DECLARE_ENTT_SERIALISE() void serialise_entt_base(entt::entity en, serialise_context& ctx, nlohmann::json& data, uint32_t type_id, entt::entity* other)
+#define DECLARE_ENTT_SERIALISE() void serialise_entt_base(entt::entity en, serialise_context& ctx, nlohmann::json& json_data, uint32_t type_id, entt::entity* other)
 
 //Forward declare. This is super hacky, not sure how to solve
 DECLARE_ENTT_SERIALISE();
@@ -212,7 +215,7 @@ void set_thread_local_registry(entt::registry& registry)
         std::apply([&](auto&&... args) {((func(args)), ...);}, empty_tuple); \
     } \
       \
-    void serialise_entt_base(entt::entity en, serialise_context& ctx, nlohmann::json& data, uint32_t type_id, entt::entity* other){ \
+    void serialise_entt_base(entt::entity en, serialise_context& ctx, nlohmann::json& json_data, uint32_t type_id, entt::entity* other){ \
         (void)other; \
         for_each_tuple([&](auto& var) \
         { \
@@ -224,7 +227,7 @@ void set_thread_local_registry(entt::registry& registry)
                 { \
                     type attach = type(); \
                     type* nptr = nullptr; \
-                    do_serialise(ctx, data, attach, nptr); \
+                    do_serialise(ctx, json_data, attach, nptr); \
                     get_thread_local_registry().emplace<type>(en, attach); \
                 } \
                 else \
@@ -232,7 +235,7 @@ void set_thread_local_registry(entt::registry& registry)
                     assert(get_thread_local_registry().has<type>(en)); \
                     type& val = get_thread_local_registry().get<type>(en); \
                     type* nptr = nullptr; \
-                    do_serialise(ctx, data, val, nptr); \
+                    do_serialise(ctx, json_data, val, nptr); \
                 } \
             } \
         });  \
@@ -245,14 +248,14 @@ void set_thread_local_registry(entt::registry& registry)
                                 if(!ctx.encode) \
                                 { \
                                     x attach = x(); \
-                                    do_serialise(ctx, data, attach, other); \
+                                    do_serialise(ctx, json_data, attach, other); \
                                     get_thread_local_registry().emplace<x>(en, attach); \
                                 } \
                                 else \
                                 { \
                                     assert(get_thread_local_registry().has<x>(en)); \
                                     x& val = get_thread_local_registry().get<x>(en); \
-                                    do_serialise(ctx, data, val, other); \
+                                    do_serialise(ctx, json_data, val, other); \
                                 } \
                                 return; \
                              }
@@ -1543,68 +1546,5 @@ void serialisable_clone(T& one, T& into)
 }
 
 void serialise_tests();
-
-template<typename T>
-inline
-void serialise_to_db(const std::string& key, T& in, db_read_write& tx)
-{
-    nlohmann::json data = serialise(in, serialise_mode::DISK);
-
-    auto vec = nlohmann::json::to_cbor(data);
-
-    if(vec.size() > 0)
-    {
-        std::string_view view((const char*)&vec[0], vec.size());
-
-        tx.write(key, view);
-    }
-    else
-    {
-        tx.write(key, "");
-    }
-}
-
-template<typename T>
-inline
-bool serialise_from_db(const std::string& key, T& in, db_read& tx)
-{
-    std::optional<db_data> data = tx.read(key);
-
-    if(!data)
-        return false;
-
-    nlohmann::json js = nlohmann::json::from_cbor(data.value().data);
-
-    deserialise(js, in, serialise_mode::DISK);
-
-    return true;
-}
-
-///keep db dirty state so we can defer
-
-template<typename T>
-struct db_storable
-{
-    std::string key;
-
-    void save(db_read_write& tx)
-    {
-        serialise_to_db(key, static_cast<T&>(*this), tx);
-    }
-
-    bool load(const std::string& _key, db_read& tx)
-    {
-        key = _key;
-
-        return serialise_from_db(key, static_cast<T&>(*this), tx);
-    }
-
-    void del(db_read_write& tx)
-    {
-        tx.del(key);
-    }
-};
-
-#define DB_PERSIST_ID 2
 
 #endif // SERIALISABLE_HPP_INCLUDED
