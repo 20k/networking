@@ -576,6 +576,66 @@ bool sock_writable(int fd, long seconds = 0, long milliseconds = 0)
     return FD_ISSET((uint32_t)fd, &fds);
 }
 
+std::optional<std::string> tick_tcp_sender(int sock,
+                                           std::vector<write_data>& write_queue, std::mutex& write_mutex,
+                                           std::vector<write_data>& read_queue, std::mutex& read_mutex,
+                                           int MAXDATASIZE,
+                                           char buf[])
+{
+    {
+        std::lock_guard guard(write_mutex);
+
+        while(write_queue.size() > 0 && sock_writable(sock))
+        {
+            write_data& next = write_queue.front();
+
+            std::string& to_send = next.data;
+
+            int num = send(sock, to_send.data(), to_send.size(), 0);
+
+            if(num < 0)
+                return "Broken write";
+
+            if(num == to_send.size())
+            {
+                write_queue.erase(write_queue.begin());
+                continue;
+            }
+
+            if(num < to_send.size())
+            {
+                to_send = std::string(to_send.begin() + num, to_send.end());
+                break;
+            }
+        }
+    }
+
+    {
+        while(sock_readable(sock))
+        {
+            int num = -1;
+
+            if((num = recv(sock, buf, MAXDATASIZE-1, 0)) == -1)
+                return "SOCK BROKEN";
+
+            buf[num] = '\0';
+
+            std::string ret(buf, buf + num);
+
+            std::lock_guard guard(read_mutex);
+
+            write_data ndata;
+            ndata.data = std::move(ret);
+            ndata.id = -1;
+
+            read_queue.push_back(ndata);
+        }
+    }
+
+    return std::nullopt;
+}
+
+
 void client_thread_tcp(connection& conn, std::string address, uint16_t port)
 {
     printf("In thread?\n");
@@ -679,56 +739,12 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
 
         while(1)
         {
+            auto error_opt = tick_tcp_sender(sock, write_queue, write_mutex, read_queue, read_mutex, MAXDATASIZE, buf);
+
+            if(error_opt.has_value())
             {
-                std::lock_guard guard(write_mutex);
-
-                while(write_queue.size() > 0 && sock_writable(sock))
-                {
-                    write_data& next = write_queue.front();
-
-                    std::string& to_send = next.data;
-
-                    int num = send(sock, to_send.data(), to_send.size(), 0);
-
-                    if(num < 0)
-                        throw std::runtime_error("Broken write");
-
-                    if(num == to_send.size())
-                    {
-                        write_queue.erase(write_queue.begin());
-                        continue;
-                    }
-
-                    if(num < to_send.size())
-                    {
-                        to_send = std::string(to_send.begin() + num, to_send.end());
-                        break;
-                    }
-                }
-            }
-
-            {
-                while(sock_readable(sock))
-                {
-                    int num = -1;
-
-                    if((num = recv(sock, buf, MAXDATASIZE-1, 0)) == -1)
-                    {
-                        throw std::runtime_error("SOCK BROKEN");
-                    }
-
-                    buf[num] = '\0';
-
-                    std::string ret(buf, buf + num);
-
-                    std::lock_guard guard(read_mutex);
-
-                    write_data ndata;
-                    ndata.data = std::move(ret);
-                    ndata.id = -1;
-
-                    read_queue.push_back(ndata);
-                }
+                std::cout << "Exception in tcp send " << error_opt.value() << std::endl;
+                break;
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(8));
@@ -738,7 +754,6 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
     catch(std::exception& e)
     {
         std::cout << "exception in emscripten tcp write " << e.what() << std::endl;
-
     }
 
     conn.connection_in_progress = false;
