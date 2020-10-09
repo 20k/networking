@@ -391,11 +391,16 @@ socket_data<T> make_socket_data(std::shared_ptr<tcp::socket> socket)
 
     boost::asio::ip::tcp::no_delay nagle(true);
 
+    boost::beast::websocket::permessage_deflate opt;
+    opt.server_enable = true;
+    opt.client_enable = true;
+
     if constexpr(std::is_same_v<T, websocket::stream<tcp::socket>>)
     {
         wps = std::shared_ptr<T>(new T{std::move(*socket)});
         wps->text(false);
         wps->set_option(websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
+        wps->set_option(opt);
 
         wps->next_layer().set_option(nagle);
     }
@@ -424,6 +429,7 @@ socket_data<T> make_socket_data(std::shared_ptr<tcp::socket> socket)
         wps = std::shared_ptr<T>(new T{std::move(*socket), *ret.ctx});
         wps->text(false);
         wps->set_option(websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
+        wps->set_option(opt);
 
         wps->next_layer().next_layer().set_option(nagle);
 
@@ -443,12 +449,6 @@ socket_data<T> make_socket_data(std::shared_ptr<tcp::socket> socket)
     {
         res.insert(boost::beast::http::field::sec_websocket_protocol, "binary");
     }));
-
-    boost::beast::websocket::permessage_deflate opt;
-    opt.server_enable = true;
-    opt.client_enable = true;
-
-    ws.set_option(opt);
 
     //ws.accept();
     boost::system::error_code ec;
@@ -743,6 +743,10 @@ void client_thread(connection& conn, std::string address, uint16_t port)
     {
         boost::asio::ip::tcp::no_delay nagle(true);
 
+        boost::beast::websocket::permessage_deflate opt;
+        opt.server_enable = true;
+        opt.client_enable = true;
+
         tcp::resolver resolver{ioc};
 
         auto const results = resolver.resolve(address, std::to_string(port));
@@ -751,6 +755,7 @@ void client_thread(connection& conn, std::string address, uint16_t port)
         {
             wps = new T{ioc};
             wps->text(false);
+            wps->set_option(opt);
 
             boost::asio::connect(wps->next_layer(), results.begin(), results.end());
 
@@ -766,6 +771,7 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
             wps = new T{ioc, ctx};
             wps->text(false);
+            wps->set_option(opt);
 
             boost::asio::connect(wps->next_layer().next_layer(), results.begin(), results.end());
 
@@ -777,14 +783,7 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
         T& ws = *wps;
 
-        boost::beast::websocket::permessage_deflate opt;
-        opt.server_enable = true;
-        opt.client_enable = true;
-
-        ws.set_option(opt);
-
         ws.handshake(address, "/");
-
 
         boost::beast::multi_buffer rbuffer;
         boost::beast::multi_buffer wbuffer;
