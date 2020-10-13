@@ -68,7 +68,7 @@ void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp:
 
     uint64_t id = -1;
     T* wps = nullptr;
-    ssl::context ctx{ssl::context::sslv23};
+    ssl::context ctx{ssl::context::tls_server};
 
     try
     {
@@ -386,7 +386,7 @@ template<typename T>
 socket_data<T> make_socket_data(std::shared_ptr<tcp::socket> socket)
 {
     socket_data<T> ret;
-    ret.ctx = std::shared_ptr<ssl::context>(new ssl::context{ssl::context::sslv23});
+    ret.ctx = std::shared_ptr<ssl::context>(new ssl::context{ssl::context::tls_server});
     std::shared_ptr<T> wps;
 
     boost::asio::ip::tcp::no_delay nagle(true);
@@ -733,11 +733,17 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 
 
 template<typename T>
-void client_thread(connection& conn, std::string address, uint16_t port)
+void client_thread(connection& conn, std::string address, uint16_t port, std::string sni_hostname)
 {
     T* wps = nullptr;
     boost::asio::io_context ioc;
-    ssl::context ctx{ssl::context::sslv23_client};
+    ssl::context ctx{ssl::context::tls_client};
+
+    ctx.set_options(ssl::context::no_sslv2);
+    ctx.set_options(ssl::context::no_sslv3);
+    ctx.set_options(ssl::context::no_tlsv1);
+    ctx.set_options(ssl::context::no_tlsv1_1);
+    ctx.set_options(ssl::context::no_tlsv1_2);
 
     try
     {
@@ -766,6 +772,15 @@ void client_thread(connection& conn, std::string address, uint16_t port)
 
             wps = new T{ioc, ctx};
             wps->text(false);
+
+            if(sni_hostname.size() > 0)
+            {
+                if(!SSL_set_tlsext_host_name(wps->next_layer().native_handle(), sni_hostname.c_str()))
+                {
+                    boost::system::error_code ec{static_cast<int>(::ERR_get_error()), boost::asio::error::get_ssl_category()};
+                    throw boost::system::system_error{ec};
+                }
+            }
 
             boost::asio::connect(wps->next_layer().next_layer(), results.begin(), results.end());
 
@@ -1197,16 +1212,16 @@ void connection::host(const std::string& address, uint16_t port, connection_type
 }
 #endif // __EMSCRIPTEN__
 
-void connection::connect(const std::string& address, uint16_t port, connection_type::type type)
+void connection::connect(const std::string& address, uint16_t port, connection_type::type type, std::string sni_hostname)
 {
     thread_is_client = true;
 
     #ifndef __EMSCRIPTEN__
     if(type == connection_type::PLAIN)
-        thrd.emplace_back(client_thread<websocket::stream<tcp::socket>>, std::ref(*this), address, port);
+        thrd.emplace_back(client_thread<websocket::stream<tcp::socket>>, std::ref(*this), address, port, sni_hostname);
 
     if(type == connection_type::SSL)
-        thrd.emplace_back(client_thread<websocket::stream<ssl::stream<tcp::socket>>>, std::ref(*this), address, port);
+        thrd.emplace_back(client_thread<websocket::stream<ssl::stream<tcp::socket>>>, std::ref(*this), address, port, sni_hostname);
     #else
     ///-s WEBSOCKET_URL=wss://
     if(type != connection_type::EMSCRIPTEN_AUTOMATIC)

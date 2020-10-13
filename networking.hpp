@@ -42,7 +42,7 @@ namespace connection_type
 struct connection
 {
     void host(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN);
-    void connect(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN);
+    void connect(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN, std::string sni_hostname = "");
 
     std::optional<uint64_t> has_new_client();
     void pop_new_client();
