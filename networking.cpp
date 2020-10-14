@@ -507,6 +507,7 @@ socket_data<T> make_socket_data(tcp::socket& socket, boost::asio::ssl::context& 
     return ret;
 }
 
+#if 0
 template<typename T>
 void write_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
 {
@@ -656,6 +657,173 @@ void read_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
 
     term++;
 }
+#endif // 0
+
+template<typename T>
+void read_write_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
+{
+    try
+    {
+    boost::beast::multi_buffer write_buffer;
+
+    std::vector<write_data>* write_queue_ptr = nullptr;
+    std::mutex* write_mutex_ptr = nullptr;
+
+    {
+        std::unique_lock guard(conn.mut);
+
+        write_queue_ptr = &conn.directed_write_queue[id];
+        write_mutex_ptr = &conn.directed_write_lock[id];
+    }
+
+    std::vector<write_data>& write_queue = *write_queue_ptr;
+    std::mutex& write_mutex = *write_mutex_ptr;
+
+    uint64_t empty_spins = 0;
+
+    boost::beast::multi_buffer read_buffer;
+
+    std::vector<write_data>* read_queue_ptr = nullptr;
+    std::mutex* read_mutex_ptr = nullptr;
+
+    {
+        std::unique_lock guard(conn.mut);
+
+        read_queue_ptr = &conn.fine_read_queue[id];
+        read_mutex_ptr = &conn.fine_read_lock[id];
+    }
+
+    std::vector<write_data>& read_queue = *read_queue_ptr;
+    std::mutex& read_mutex = *read_mutex_ptr;
+
+    bool doing_read = false;
+    bool doing_write = false;
+
+    std::atomic_bool has_error = false;
+    std::atomic_bool is_suspended = false;
+    std::atomic_bool has_write_result = false;
+    std::atomic_bool has_read_result = false;
+
+    boost::fibers::detail::spinlock lock;
+    std::unique_lock<boost::fibers::detail::spinlock> local_mut(lock, std::defer_lock);
+    boost::fibers::context* fiber_ctx = boost::fibers::context::active();
+
+    while(term == 0)
+    {
+        if(!doing_write)
+        {
+            std::optional<write_data> next_data = std::nullopt;
+
+            {
+                std::lock_guard guard(write_mutex);
+
+                if(write_queue.size() > 0)
+                {
+                    next_data = *write_queue.begin();
+                    write_queue.erase(write_queue.begin());
+                }
+            }
+
+            if(next_data.has_value())
+            {
+                doing_write = true;
+
+                write_buffer.consume(write_buffer.size());
+
+                size_t n = buffer_copy(write_buffer.prepare(next_data.value().data.size()), boost::asio::buffer(next_data.value().data));
+                write_buffer.commit(n);
+
+                sock.wps->async_write(write_buffer.data(), [&](auto in, auto _)
+                {
+                    local_mut.lock();
+                    has_write_result = true;
+                    has_error = has_error || (bool)in;
+
+                    if(is_suspended)
+                    {
+                        is_suspended = false;
+                        boost::fibers::context::active()->schedule(fiber_ctx);
+                    }
+
+                    local_mut.unlock();
+                });
+            }
+        }
+
+        if(has_write_result)
+        {
+            doing_write = false;
+            has_write_result = false;
+        }
+
+        if(!doing_read)
+        {
+            doing_read = true;
+
+            sock.wps->async_read(read_buffer, [&](auto in, auto _)
+            {
+                local_mut.lock();
+                has_read_result = true;
+                has_error = has_error || (bool)in;
+
+                if(is_suspended)
+                {
+                    is_suspended = false;
+                    boost::fibers::context::active()->schedule(fiber_ctx);
+                }
+
+                local_mut.unlock();
+            });
+        }
+
+        if(has_read_result)
+        {
+            std::string next = boost::beast::buffers_to_string(read_buffer.data());
+
+            write_data ndata;
+            ndata.data = std::move(next);
+            ndata.id = id;
+
+            {
+                std::lock_guard guard(read_mutex);
+
+                read_queue.push_back(ndata);
+
+                read_buffer = decltype(read_buffer)();
+            }
+
+            ndata = write_data();
+            has_read_result = false;
+            doing_read = false;
+        }
+
+        {
+            local_mut.lock();
+
+            if(!has_write_result && !has_read_result && doing_write && doing_read)
+            {
+                is_suspended = true;
+                fiber_ctx->suspend(local_mut);
+            }
+            else
+            {
+                local_mut.unlock();
+            }
+        }
+
+        if(has_error)
+            throw std::runtime_error("Err in read/write fiber");
+
+        boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
+    }
+    }
+    catch(...)
+    {
+        printf("Error in read write fiber\n");
+    }
+
+    term++;
+}
 
 template<typename T>
 void disconnect_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
@@ -720,6 +888,7 @@ void session(connection& conn, tcp::socket& in, int& session_count, boost::asio:
 
     int should_term = 0;
 
+    #if 0
     boost::fibers::fiber f1(read_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
     boost::fibers::fiber f2(write_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
     //boost::fibers::fiber f3(disconnect_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
@@ -731,7 +900,13 @@ void session(connection& conn, tcp::socket& in, int& session_count, boost::asio:
 
     f1.join();
     f2.join();
+    #endif // 0
     //f3.join();
+
+    //boost::fibers::fiber rwfiber(read_write_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
+    //rwfiber.join();
+
+    read_write_fiber<T>(conn, sock, id, should_term);
 
     {
         std::scoped_lock guard(conn.mut);
@@ -756,7 +931,7 @@ void session(connection& conn, tcp::socket& in, int& session_count, boost::asio:
 }
 
 template<typename T>
-void server(connection& conn, std::shared_ptr<boost::asio::io_context> io_ctx, tcp::acceptor& a) {
+void server(connection& conn,boost::asio::io_context& io_ctx, tcp::acceptor& a) {
     try {
         static std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
         static std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
@@ -791,7 +966,7 @@ void server(connection& conn, std::shared_ptr<boost::asio::io_context> io_ctx, t
 
             //std::shared_ptr<tcp::socket> socket(new tcp::socket(*io_ctx));
 
-            tcp::socket socket(*io_ctx);
+            tcp::socket socket(io_ctx);
 
             printf("Pre accept\n");
 
@@ -826,7 +1001,7 @@ void server(connection& conn, std::shared_ptr<boost::asio::io_context> io_ctx, t
 
     printf("Terminated server\n");
 
-    io_ctx->stop();
+    io_ctx.stop();
 }
 
 void sleeper()
@@ -840,7 +1015,7 @@ void sleeper()
 
 class round_robin : public boost::fibers::algo::algorithm {
 private:
-    std::shared_ptr< boost::asio::io_context >      io_ctx_;
+    boost::asio::io_context*      io_ctx_ = nullptr;
     boost::fibers::scheduler::ready_queue_type      rqueue_{};
     std::size_t                                     counter_{ 0 };
 
@@ -865,8 +1040,8 @@ public:
         }
     };
 
-    round_robin( std::shared_ptr< boost::asio::io_context > const& io_ctx) :
-        io_ctx_( io_ctx){
+    round_robin( boost::asio::io_context& io_ctx) :
+        io_ctx_( &io_ctx){
         // We use add_service() very deliberately. This will throw
         // service_already_exists if you pass the same io_context instance to
         // more than one round_robin instance.
@@ -934,19 +1109,22 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 {
     //auto const address = boost::asio::ip::make_address(saddress);
 
-    std::shared_ptr< boost::asio::io_context > io_ctx = std::make_shared< boost::asio::io_context >();
+    boost::asio::io_context io_ctx{1};
+    //std::shared_ptr< boost::asio::io_context > io_ctx = std::make_shared< boost::asio::io_context >();
     //boost::fibers::use_scheduling_algorithm< boost::fibers::asio::round_robin >(io_ctx);
     boost::fibers::use_scheduling_algorithm< round_robin >(io_ctx);
     //boost::fibers::use_scheduling_algorithm< network_round_robin >();
 
     //tcp::acceptor acceptor{*io_ctx, {address, port}};
-    tcp::acceptor acceptor(*io_ctx, tcp::endpoint(tcp::v4(), port));
+    tcp::acceptor acceptor(io_ctx, tcp::endpoint(tcp::v4(), port));
     acceptor.set_option(boost::asio::socket_base::reuse_address(true));
+
+    acceptor.listen(boost::asio::socket_base::max_listen_connections);
 
     boost::fibers::fiber(sleeper).detach();
     boost::fibers::fiber(server<T>, std::ref(conn), std::ref(io_ctx), std::ref(acceptor)).detach();
 
-    io_ctx->run();
+    io_ctx.run();
 
     printf("Run should not have exited\n");
 }
