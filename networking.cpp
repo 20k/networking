@@ -712,13 +712,100 @@ void sleeper()
     }
 }
 
+class round_robin : public boost::fibers::algo::algorithm {
+private:
+    std::shared_ptr< boost::asio::io_context >      io_ctx_;
+    boost::fibers::scheduler::ready_queue_type      rqueue_{};
+    std::size_t                                     counter_{ 0 };
+
+public:
+    struct service : public boost::asio::io_context::service {
+        static inline boost::asio::io_context::id                  id;
+
+        std::unique_ptr< boost::asio::io_context::work >    work_;
+
+        service( boost::asio::io_context & io_ctx) :
+            boost::asio::io_context::service( io_ctx),
+            work_{ new boost::asio::io_context::work( io_ctx) } {
+        }
+
+        virtual ~service() {}
+
+        service( service const&) = delete;
+        service & operator=( service const&) = delete;
+
+        void shutdown_service() override final {
+            work_.reset();
+        }
+    };
+
+    round_robin( std::shared_ptr< boost::asio::io_context > const& io_ctx) :
+        io_ctx_( io_ctx){
+        // We use add_service() very deliberately. This will throw
+        // service_already_exists if you pass the same io_context instance to
+        // more than one round_robin instance.
+        boost::asio::add_service( * io_ctx_, new service( * io_ctx_) );
+        boost::asio::post( * io_ctx_, [this]() mutable {
+                while ( ! io_ctx_->stopped() ) {
+                    if ( has_ready_fibers() ) {
+                        // run all pending handlers in round_robin
+                        while ( io_ctx_->poll() );
+                        // finished work, yield
+                        //boost::this_fiber::yield();
+                        boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
+                    } else {
+                        // run one handler inside io_context
+                        // if no handler available, block this thread
+                        if ( ! io_ctx_->run_one() ) {
+                            break;
+                        }
+                    }
+
+                    //sf::sleep(sf::milliseconds(1));
+               }
+            });
+    }
+
+    void awakened(boost::fibers::context * ctx) noexcept {
+        BOOST_ASSERT( nullptr != ctx);
+        BOOST_ASSERT( ! ctx->ready_is_linked() );
+        ctx->ready_link( rqueue_); /*< fiber, enqueue on ready queue >*/
+        ++counter_;
+    }
+
+    boost::fibers::context * pick_next() noexcept {
+        boost::fibers::context * ctx(nullptr);
+        if ( ! rqueue_.empty() ) {
+            ctx = & rqueue_.front();
+            rqueue_.pop_front();
+            BOOST_ASSERT( nullptr != ctx);
+            BOOST_ASSERT( boost::fibers::context::active() != ctx);
+            --counter_;
+        }
+        return ctx;
+    }
+
+    bool has_ready_fibers() const noexcept {
+        return 0 < counter_;
+    }
+
+    void suspend_until( std::chrono::steady_clock::time_point const& abs_time) noexcept {
+        sf::sleep(sf::milliseconds(1));
+    }
+
+    void notify() noexcept {
+    }
+};
+
 template<typename T>
 void server_thread(connection& conn, std::string saddress, uint16_t port)
 {
     //auto const address = boost::asio::ip::make_address(saddress);
 
     std::shared_ptr< boost::asio::io_context > io_ctx = std::make_shared< boost::asio::io_context >();
-    boost::fibers::use_scheduling_algorithm< boost::fibers::asio::round_robin >(io_ctx);
+    //boost::fibers::use_scheduling_algorithm< boost::fibers::asio::round_robin >(io_ctx);
+    boost::fibers::use_scheduling_algorithm< round_robin >(io_ctx);
+    //boost::fibers::use_scheduling_algorithm< network_round_robin >();
 
     //tcp::acceptor acceptor{*io_ctx, {address, port}};
     tcp::acceptor acceptor(*io_ctx, tcp::endpoint(tcp::v4(), port));
