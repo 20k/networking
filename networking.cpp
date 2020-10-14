@@ -480,6 +480,8 @@ void write_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
     std::vector<write_data>& queue = *queue_ptr;
     std::mutex& mutex = *mutex_ptr;
 
+    uint64_t empty_spins = 0;
+
     try
     {
         while(term == 0)
@@ -511,9 +513,23 @@ void write_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
                     break;
                 else if(ec)
                     break;
+
+                empty_spins = 0;
+            }
+            else
+            {
+                empty_spins++;
             }
 
-            boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
+            ///2 attempts at 1ms sleep
+            if(empty_spins <= 1)
+                boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
+            ///16 attempts at 4ms sleep
+            else if(empty_spins <= 16)
+                boost::this_fiber::sleep_for(std::chrono::milliseconds(4));
+            ///else sleep for 32ms
+            else
+                boost::this_fiber::sleep_for(std::chrono::milliseconds(32));
         }
     }
     catch(...)
@@ -569,6 +585,8 @@ void read_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
                 buffer = decltype(buffer)();
             }
 
+            ndata = write_data();
+
             boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
         }
     }
@@ -592,19 +610,22 @@ void disconnect_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
 
             if(it != conn.force_disconnection_queue.end())
             {
-                try
-                {
-                    boost::beast::get_lowest_layer(*sock.wps).close();
-                }
-                catch(...){}
-
                 conn.force_disconnection_queue.erase(it);
                 break;
             }
         }
 
-        boost::this_fiber::sleep_for(std::chrono::milliseconds(500));
+        boost::this_fiber::sleep_for(std::chrono::milliseconds(2000));
     }
+
+    try
+    {
+        boost::system::error_code ec;
+        sock.wps->async_close(boost::beast::websocket::close_code::none, boost::fibers::asio::yield[ec]);
+
+        //boost::beast::get_lowest_layer(*sock.wps).close();
+    }
+    catch(...){}
 
     term++;
 }
@@ -690,7 +711,8 @@ void server(connection& conn, std::shared_ptr<boost::asio::io_context> const& io
             session_count++;
 
             if(ec) {
-                throw boost::system::system_error(ec); //some other error
+                //throw boost::system::system_error(ec); //some other error
+                printf("Error in server async_accept\n");
             } else {
                 boost::fibers::fiber(session<T>, std::ref(conn), socket, std::ref(session_count)).detach();
             }
@@ -698,7 +720,7 @@ void server(connection& conn, std::shared_ptr<boost::asio::io_context> const& io
             boost::this_fiber::sleep_for(std::chrono::milliseconds(16));
         }
     } catch (std::exception const& ex) {
-
+        std::cout << "Server caught exception " << ex.what() << std::endl;
     }
     io_ctx->stop();
 }
@@ -752,7 +774,6 @@ public:
                         while ( io_ctx_->poll() );
                         // finished work, yield
                         //boost::this_fiber::yield();
-                        boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
                     } else {
                         // run one handler inside io_context
                         // if no handler available, block this thread
@@ -761,6 +782,7 @@ public:
                         }
                     }
 
+                    boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
                     //sf::sleep(sf::milliseconds(1));
                }
             });
