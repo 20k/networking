@@ -513,9 +513,6 @@ void write_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
                     break;
             }
 
-            if(id == 0)
-                printf("Write fiber %i\n", id);
-
             boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
         }
     }
@@ -571,9 +568,6 @@ void read_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
 
                 buffer = decltype(buffer)();
             }
-
-            if(id == 0)
-                printf("Read fiber %i\n", id);
 
             boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
         }
