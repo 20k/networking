@@ -757,7 +757,8 @@ public:
                         // run all pending handlers in round_robin
                         while ( io_ctx_->poll() );
                         // finished work, yield
-                        boost::this_fiber::yield();
+                        //boost::this_fiber::yield();
+                        boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
                     } else {
                         // run one handler inside io_context
                         // if no handler available, block this thread
