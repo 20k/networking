@@ -429,30 +429,29 @@ void async_try_suspend(async_fiber_state& state)
 }
 
 template<typename T>
-socket_data<T> make_socket_data(std::shared_ptr<tcp::socket> socket, boost::asio::ssl::context& ssl_context)
+socket_data<T> make_socket_data(tcp::socket& socket, boost::asio::ssl::context& ssl_context)
 {
     socket_data<T> ret;
-    //ret.ctx = std::shared_ptr<ssl::context>(new ssl::context{ssl::context::tls_server});
     std::shared_ptr<T> wps;
 
     boost::asio::ip::tcp::no_delay nagle(true);
 
-    if constexpr(std::is_same_v<T, websocket::stream<tcp::socket>>)
+    if constexpr(std::is_same_v<T, websocket::stream<boost::beast::tcp_stream>>)
     {
-        wps = std::shared_ptr<T>(new T{std::move(*socket)});
+        wps = std::shared_ptr<T>(new T{std::move(socket)});
         wps->text(false);
         wps->set_option(websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
 
-        wps->next_layer().set_option(nagle);
+        wps->next_layer().socket().set_option(nagle);
     }
 
-    if constexpr(std::is_same_v<T, websocket::stream<ssl::stream<tcp::socket>>>)
+    if constexpr(std::is_same_v<T, websocket::stream<ssl::stream<boost::beast::tcp_stream>>>)
     {
-        wps = std::shared_ptr<T>(new T{std::move(*socket), ssl_context});
+        wps = std::shared_ptr<T>(new T{std::move(socket), ssl_context});
         wps->text(false);
         wps->set_option(websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
 
-        wps->next_layer().next_layer().set_option(nagle);
+        wps->next_layer().next_layer().socket().set_option(nagle);
 
         async_fiber_state st;
 
@@ -562,7 +561,10 @@ void write_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
                 /*if(st.failed && st._ec == boost::asio::error::eof)
                     break;
                 else */if(st.failed)
+                {
+                    printf("Write failed\n");
                     break;
+                }
 
                 empty_spins = 0;
             }
@@ -623,7 +625,10 @@ void read_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
             /*if(st.failed && st._ec == boost::asio::error::eof)
                 break;
             else */if(st.failed)
+            {
+                printf("Read failed\n");
                 break;
+            }
 
             std::string next = boost::beast::buffers_to_string(buffer.data());
 
@@ -685,13 +690,13 @@ void disconnect_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
 }
 
 template<typename T>
-void session(connection& conn, std::shared_ptr<tcp::socket> in, int& session_count, boost::asio::ssl::context& ssl_context)
+void session(connection& conn, tcp::socket& in, int& session_count, boost::asio::ssl::context& ssl_context)
 {
     socket_data<T> sock;
 
     try
     {
-        sock = make_socket_data<T>(in, std::ref(ssl_context));
+        sock = make_socket_data<T>(std::ref(in), std::ref(ssl_context));
     }
     catch(std::exception const& ex)
     {
@@ -751,13 +756,13 @@ void session(connection& conn, std::shared_ptr<tcp::socket> in, int& session_cou
 }
 
 template<typename T>
-void server(connection& conn, std::shared_ptr<boost::asio::io_context> const& io_ctx, tcp::acceptor& a) {
+void server(connection& conn, std::shared_ptr<boost::asio::io_context> io_ctx, tcp::acceptor& a) {
     try {
         static std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
         static std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
         static std::string key = read_file_bin("./deps/secret/cert/key.pem");
 
-        boost::asio::ssl::context ssl_context;
+        boost::asio::ssl::context ssl_context{ssl::context::tls_server};
 
         ssl_context.set_options(boost::asio::ssl::context::default_workarounds |
                         boost::asio::ssl::context::no_sslv2 |
@@ -784,12 +789,14 @@ void server(connection& conn, std::shared_ptr<boost::asio::io_context> const& io
                 boost::this_fiber::sleep_for(std::chrono::seconds(1));
             }*/
 
-            std::shared_ptr<tcp::socket> socket(new tcp::socket(*io_ctx));
+            //std::shared_ptr<tcp::socket> socket(new tcp::socket(*io_ctx));
+
+            tcp::socket socket(*io_ctx);
 
             printf("Pre accept\n");
 
             async_fiber_state st;
-            a.async_accept(*socket, [&](auto in)
+            a.async_accept(socket, [&](auto in)
             {
                 async_fiber_callback(st, in);
             });
@@ -804,13 +811,17 @@ void server(connection& conn, std::shared_ptr<boost::asio::io_context> const& io
                 //throw boost::system::system_error(ec); //some other error
                 printf("Error in server async_accept\n");
             } else {
-                boost::fibers::fiber(session<T>, std::ref(conn), socket, std::ref(session_count), std::ref(ssl_context)).detach();
+                boost::fibers::fiber(session<T>, std::ref(conn), std::ref(socket), std::ref(session_count), std::ref(ssl_context)).detach();
             }
 
             boost::this_fiber::sleep_for(std::chrono::milliseconds(16));
         }
     } catch (std::exception const& ex) {
         std::cout << "Server caught exception " << ex.what() << std::endl;
+    }
+    catch(...)
+    {
+        printf("Caught unknown exception in server\n");
     }
 
     printf("Terminated server\n");
@@ -882,6 +893,8 @@ public:
                     boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
                     //sf::sleep(sf::milliseconds(1));
                }
+
+               printf("Reached the end of io post\n");
             });
     }
 
@@ -921,7 +934,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 {
     //auto const address = boost::asio::ip::make_address(saddress);
 
-    std::shared_ptr< boost::asio::io_context > io_ctx = std::make_shared< boost::asio::io_context >(1);
+    std::shared_ptr< boost::asio::io_context > io_ctx = std::make_shared< boost::asio::io_context >();
     //boost::fibers::use_scheduling_algorithm< boost::fibers::asio::round_robin >(io_ctx);
     boost::fibers::use_scheduling_algorithm< round_robin >(io_ctx);
     //boost::fibers::use_scheduling_algorithm< network_round_robin >();
@@ -931,7 +944,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
     acceptor.set_option(boost::asio::socket_base::reuse_address(true));
 
     boost::fibers::fiber(sleeper).detach();
-    boost::fibers::fiber(server<T>, std::ref(conn), std::cref(io_ctx), std::ref(acceptor)).detach();
+    boost::fibers::fiber(server<T>, std::ref(conn), std::ref(io_ctx), std::ref(acceptor)).detach();
 
     io_ctx->run();
 
@@ -1414,11 +1427,11 @@ void connection::host(const std::string& address, uint16_t port, connection_type
 
     #ifdef SUPPORT_NO_SSL
     if(type == connection_type::PLAIN)
-        thrd.emplace_back(server_thread<websocket::stream<tcp::socket>>, std::ref(*this), address, port);
+        thrd.emplace_back(server_thread<websocket::stream<boost::beast::tcp_stream>>, std::ref(*this), address, port);
     #endif // SUPPORT_NO_SSL
 
     if(type == connection_type::SSL)
-        thrd.emplace_back(server_thread<websocket::stream<ssl::stream<tcp::socket>>>, std::ref(*this), address, port);
+        thrd.emplace_back(server_thread<websocket::stream<ssl::stream<boost::beast::tcp_stream>>>, std::ref(*this), address, port);
 }
 #endif // __EMSCRIPTEN__
 
