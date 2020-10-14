@@ -48,11 +48,38 @@ public:
     // ptr to bound error_code instance if any
     boost::system::error_code   *   ec_{ nullptr };
 };
+
+struct fiber_variable
+{
+    boost::fibers::fiber_specific_ptr<yield_t> ptr;
+
+    fiber_variable(){}
+
+    yield_t& get()
+    {
+        if(ptr.get() == nullptr)
+            ptr.reset(new yield_t);
+
+        return *ptr;
+    }
+};
+
+yield_t get_yield(boost::system::error_code & ec)
+{
+    static fiber_variable fiber_local_yield_t;
+
+    return fiber_local_yield_t.get()[ec];
+}
+
 //]
 
+///so: on windows, thread_local means fiber local
+///on linux, thread_local means... thread_local, because it has no concept of fibers
+///so all fibers share an error code, which means that once one fiber encounters an error... BAD
+///absolutely riggity fuck me with a spade
 //[fibers_asio_yield
 // canonical instance
-thread_local yield_t yield{};
+//thread_local yield_t yield{};
 //]
 
 }}}

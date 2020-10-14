@@ -276,7 +276,7 @@ private:
 // Without the need to handle a passed value, our yield_handler<void>
 // specialization is just like async_result_base.
 template<>
-class async_result< boost::fibers::asio::yield_t, void(boost::system::error_code) > : 
+class async_result< boost::fibers::asio::yield_t, void(boost::system::error_code) > :
     public boost::fibers::asio::detail::async_result_base {
 public:
     using return_type = void;
