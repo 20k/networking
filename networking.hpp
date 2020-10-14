@@ -63,6 +63,8 @@ struct connection
 
     void force_disconnect(uint64_t id);
 
+    void set_client_sleep_interval(uint64_t time_ms);
+
     static inline thread_local int thread_is_client = 0;
     static inline thread_local int thread_is_server = 0;
 
@@ -137,6 +139,7 @@ struct connection
 private:
     bool is_client = true;
     bool is_connected = false;
+    int client_sleep_interval_ms = 1;
 };
 
 namespace network_mode
