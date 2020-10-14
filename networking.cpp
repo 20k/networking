@@ -507,7 +507,7 @@ socket_data<T> make_socket_data(tcp::socket& socket, boost::asio::ssl::context& 
     return ret;
 }
 
-#if 0
+#if 1
 template<typename T>
 void write_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
 {
@@ -888,7 +888,7 @@ void session(connection& conn, tcp::socket& in, int& session_count, boost::asio:
 
     int should_term = 0;
 
-    #if 0
+    #if 1
     boost::fibers::fiber f1(read_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
     boost::fibers::fiber f2(write_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
     //boost::fibers::fiber f3(disconnect_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
@@ -906,7 +906,7 @@ void session(connection& conn, tcp::socket& in, int& session_count, boost::asio:
     //boost::fibers::fiber rwfiber(read_write_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
     //rwfiber.join();
 
-    read_write_fiber<T>(conn, sock, id, should_term);
+    //read_write_fiber<T>(conn, sock, id, should_term);
 
     {
         std::scoped_lock guard(conn.mut);
@@ -1045,9 +1045,10 @@ public:
         // We use add_service() very deliberately. This will throw
         // service_already_exists if you pass the same io_context instance to
         // more than one round_robin instance.
-        boost::asio::add_service( * io_ctx_, new service( * io_ctx_) );
+        /*boost::asio::add_service( * io_ctx_, new service( * io_ctx_) );
         boost::asio::post( * io_ctx_, [this]() mutable {
-                while ( ! io_ctx_->stopped() ) {
+                //while ( ! io_ctx_->stopped() ) {
+                while(1) {
                     if ( has_ready_fibers() ) {
                         // run all pending handlers in round_robin
                         while ( io_ctx_->poll() )
@@ -1070,7 +1071,7 @@ public:
                }
 
                printf("Reached the end of io post\n");
-            });
+            });*/
     }
 
     void awakened(boost::fibers::context * ctx) noexcept {
@@ -1109,10 +1110,14 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 {
     //auto const address = boost::asio::ip::make_address(saddress);
 
+    ///best guess: its something related to the threading here
+    ///weirdly, setting this to {1} breaks everything
     boost::asio::io_context io_ctx{1};
+    //boost::asio::io_context io_ctx;
     //std::shared_ptr< boost::asio::io_context > io_ctx = std::make_shared< boost::asio::io_context >();
     //boost::fibers::use_scheduling_algorithm< boost::fibers::asio::round_robin >(io_ctx);
     boost::fibers::use_scheduling_algorithm< round_robin >(io_ctx);
+    //boost::fibers::use_scheduling_algorithm< round_robin >(io_ctx);
     //boost::fibers::use_scheduling_algorithm< network_round_robin >();
 
     //tcp::acceptor acceptor{*io_ctx, {address, port}};
@@ -1124,7 +1129,13 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
     boost::fibers::fiber(sleeper).detach();
     boost::fibers::fiber(server<T>, std::ref(conn), std::ref(io_ctx), std::ref(acceptor)).detach();
 
-    io_ctx.run();
+    while(1)
+    {
+        io_ctx.poll();
+        if(io_ctx.stopped())
+            io_ctx.restart();
+        boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
+    }
 
     printf("Run should not have exited\n");
 }
