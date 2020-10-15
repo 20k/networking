@@ -1543,6 +1543,8 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
     ctx.set_options(ssl::context::no_tlsv1_1);
     ctx.set_options(ssl::context::no_tlsv1_2);
 
+    conn.connection_in_progress = true;
+
     try
     {
         boost::asio::ip::tcp::no_delay nagle(true);
@@ -1630,6 +1632,7 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
         std::mutex& read_mutex = *read_mutex_ptr;
 
         conn.client_connected_to_server = 1;
+        conn.connection_in_progress = false;
 
         while(1)
         {
@@ -1748,6 +1751,7 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
     }
 
     conn.client_connected_to_server = 0;
+    conn.connection_in_progress = false;
 }
 }
 #endif // __EMSCRIPTEN__
