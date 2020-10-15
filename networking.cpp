@@ -59,7 +59,7 @@ std::string read_file_bin(const std::string& file)
     return str;
 }
 
-#define CONNECTION_PER_THREAD
+//#define CONNECTION_PER_THREAD
 #ifdef CONNECTION_PER_THREAD
 template<typename T>
 void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp::socket* psocket, ssl::context& ctx)
@@ -348,6 +348,331 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 }
 #endif // CONNECTION_PER_THREAD
 
+#define ASYNC_THREAD
+#ifdef ASYNC_THREAD
+
+template<typename T>
+struct session_data
+{
+    T* wps = nullptr;
+    uint64_t id = -1;
+    tcp::socket* socket = nullptr;
+    ssl::context* ctx = nullptr;
+
+    boost::beast::multi_buffer rbuffer;
+    boost::beast::multi_buffer wbuffer;
+
+    bool async_read = false;
+    bool async_write = false;
+
+    bool should_continue = false;
+
+    std::vector<write_data>* write_queue_ptr = nullptr;
+    std::mutex* write_mutex_ptr = nullptr;
+
+    std::vector<write_data>* read_queue_ptr = nullptr;
+    std::mutex* read_mutex_ptr = nullptr;
+
+    enum state
+    {
+        start,
+        has_handshake,
+        has_accept,
+        read_write,
+        err,
+        blocked,
+    };
+
+    state current_state = start;
+
+    void tick(connection& conn)
+    {
+        if(current_state == blocked)
+            return;
+
+        if(current_state == err)
+            return;
+
+    try
+    {
+        if(current_state == start)
+        {
+            current_state = blocked;
+            boost::asio::ip::tcp::no_delay nagle(true);
+
+            if constexpr(std::is_same_v<T, websocket::stream<boost::beast::tcp_stream>>)
+            {
+                wps = new T{std::move(*socket)};
+                wps->text(false);
+
+                wps->next_layer().socket().set_option(nagle);
+                current_state = has_handshake;
+            }
+
+            if constexpr(std::is_same_v<T, websocket::stream<ssl::stream<boost::beast::tcp_stream>>>)
+            {
+                wps = new T{std::move(*socket), *ctx};
+                wps->text(false);
+
+                wps->next_layer().next_layer().socket().set_option(nagle);
+
+                wps->next_layer().async_handshake(ssl::stream_base::server, [&](auto ec)
+                {
+                    if(ec)
+                    {
+                        current_state = err;
+                    }
+                    else
+                    {
+                        current_state = has_handshake;
+                    }
+                });
+            }
+        }
+
+        if(current_state == has_handshake)
+        {
+            current_state = blocked;
+            assert(wps != nullptr);
+
+            T& ws = *wps;
+
+            ws.set_option(websocket::stream_base::decorator(
+            [](websocket::response_type& res)
+            {
+                res.insert(boost::beast::http::field::sec_websocket_protocol, "binary");
+            }));
+
+            boost::beast::websocket::permessage_deflate opt;
+            opt.server_enable = true;
+            opt.client_enable = true;
+
+            ws.set_option(opt);
+            ws.async_accept([&](auto ec)
+            {
+                if(ec)
+                {
+                    current_state = err;
+                    return;
+                }
+
+                current_state = has_accept;
+
+                {
+                    std::unique_lock guard(conn.mut);
+
+                    conn.new_clients.push_back(id);
+                    conn.connected_clients.push_back(id);
+                }
+            });
+        }
+
+        if(current_state == has_accept)
+        {
+            printf("Connection is negotiated\n");
+            current_state = read_write;
+
+            std::unique_lock guard(conn.mut);
+
+            write_queue_ptr = &conn.directed_write_queue[id];
+            write_mutex_ptr = &conn.directed_write_lock[id];
+
+            read_queue_ptr = &conn.fine_read_queue[id];
+            read_mutex_ptr = &conn.fine_read_lock[id];
+        }
+
+        if(current_state == read_write)
+        {
+            T& ws = *wps;
+
+            std::vector<write_data>& write_queue = *write_queue_ptr;
+            std::mutex& write_mutex = *write_mutex_ptr;
+
+            std::vector<write_data>& read_queue = *read_queue_ptr;
+            std::mutex& read_mutex = *read_mutex_ptr;
+
+            if(!async_write)
+            {
+                std::lock_guard guard(write_mutex);
+
+                for(auto it = write_queue.begin(); it != write_queue.end();)
+                {
+                    const write_data& next = *it;
+
+                    if(next.id != id)
+                    {
+                        current_state = err;
+                        return;
+                    }
+
+                    async_write = true;
+
+                    wbuffer.consume(wbuffer.size());
+
+                    size_t n = buffer_copy(wbuffer.prepare(next.data.size()), boost::asio::buffer(next.data));
+                    wbuffer.commit(n);
+
+                    ws.async_write(wbuffer.data(), [&](boost::system::error_code ec, std::size_t)
+                    {
+                        if(ec.failed())
+                        {
+                            current_state = err;
+                            return;
+                        }
+
+                        async_write = false;
+                        should_continue = true;
+                    });
+
+                    write_queue.erase(it);
+                    break;
+                }
+            }
+
+            if(!async_read)
+            {
+                ws.async_read(rbuffer, [&](boost::system::error_code ec, std::size_t)
+                {
+                    if(ec.failed())
+                    {
+                        current_state = err;
+                        return;
+                    }
+
+                    std::string next = boost::beast::buffers_to_string(rbuffer.data());
+
+                    std::lock_guard guard(read_mutex);
+
+                    write_data ndata;
+                    ndata.data = std::move(next);
+                    ndata.id = id;
+
+                    read_queue.push_back(ndata);
+
+                    rbuffer.clear();
+
+                    async_read = false;
+                });
+
+                async_read = true;
+            }
+        }
+    }
+    catch(...)
+    {
+        printf("Err");
+    }
+    }
+};
+
+template<typename T>
+void server_thread(connection& conn, std::string saddress, uint16_t port)
+{
+    auto const address = boost::asio::ip::make_address(saddress);
+
+    std::atomic_bool accepted = true;
+    boost::asio::io_context acceptor_context{1};
+
+    tcp::acceptor acceptor{acceptor_context, {address, port}};
+    acceptor.set_option(boost::asio::socket_base::reuse_address(true));
+
+    ssl::context ctx{ssl::context::tls_server};
+
+    std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
+    std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
+    std::string key = read_file_bin("./deps/secret/cert/key.pem");
+
+    ctx.set_options(boost::asio::ssl::context::default_workarounds |
+                    boost::asio::ssl::context::no_sslv2 |
+                    boost::asio::ssl::context::single_dh_use |
+                    boost::asio::ssl::context::no_sslv3);
+
+    ctx.use_certificate_chain(
+        boost::asio::buffer(cert.data(), cert.size()));
+
+    ctx.use_private_key(
+        boost::asio::buffer(key.data(), key.size()),
+        boost::asio::ssl::context::file_format::pem);
+
+    ctx.use_tmp_dh(
+        boost::asio::buffer(dh.data(), dh.size()));
+
+
+    boost::asio::io_context* next_context = nullptr;
+    tcp::socket* next_socket = nullptr;
+
+    std::map<uint64_t, session_data<T>> all_session_data;
+
+    while(1)
+    {
+        if(next_socket == nullptr)
+        {
+            //next_context = new boost::asio::io_context{1};
+            next_socket = new tcp::socket{acceptor_context};
+
+            acceptor.async_accept(*next_socket, [&](auto ec)
+            {
+                if(ec)
+                {
+                    delete next_socket;
+                    //delete next_context;
+                    printf("Async accept error");
+                    next_socket = nullptr;
+                    //next_context = nullptr;
+                }
+                else
+                {
+                    uint64_t id = conn.id++;
+                    session_data<T>& dat = all_session_data[id];
+
+                    dat.id = id;
+                    dat.socket = next_socket;
+                    dat.ctx = &ctx;
+                }
+            });
+        }
+
+        acceptor_context.poll();
+        acceptor_context.restart();
+
+        for(auto& i : all_session_data)
+        {
+            i.second.tick(conn);
+        }
+
+        sf::sleep(sf::milliseconds(1));
+    }
+
+    /*while(1)
+    {
+        boost::asio::io_context* next_context = nullptr;
+        tcp::socket* socket = nullptr;
+
+        try
+        {
+            next_context = new boost::asio::io_context{1};
+            socket = new tcp::socket{*next_context};
+
+            acceptor.accept(*socket);
+        }
+        catch(...)
+        {
+            if(socket)
+                delete socket;
+
+            if(next_context)
+                delete next_context;
+
+            sf::sleep(sf::milliseconds(1));
+            continue;
+        }
+
+        std::thread(server_session<T>, std::ref(conn), next_context, socket, std::ref(ctx)).detach();
+
+        sf::sleep(sf::milliseconds(1));;
+    }*/
+}
+#endif // ASYNC_THREAD
 
 //#define ONE_FIBER_THREAD
 #ifdef ONE_FIBER_THREAD
