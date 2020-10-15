@@ -19,6 +19,9 @@
 #ifndef __EMSCRIPTEN__
 #define BOOST_BEAST_SEPARATE_COMPILATION
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
+
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
 #include <boost/asio/connect.hpp>
@@ -423,7 +426,7 @@ struct session_data
                 conn.disconnected_clients.push_back(id);
             }
 
-            std::cout << "Got networking error " << last_ec << std::endl;
+            std::cout << "Got networking error " << last_ec.message() << std::endl;
 
             current_state = terminated;
             wake_queue.push_back(id);
@@ -507,7 +510,7 @@ struct session_data
 
         if(current_state == has_accept)
         {
-            printf("Connection is negotiated\n");
+            printf("Connection %" PRIu64 " is negotiated\n", id);
             current_state = read_write;
 
             {
@@ -676,7 +679,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
             {
                 if(ec)
                 {
-                    std::cout << "Error in async accept " << ec << std::endl;
+                    std::cout << "Error in async accept " << ec.message() << std::endl;
                     next_socket = tcp::socket{acceptor_context};
                     async_in_flight = false;
                 }
