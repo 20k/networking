@@ -365,13 +365,13 @@ struct session_data
     bool async_read = false;
     bool async_write = false;
 
-    bool should_continue = false;
-
     std::vector<write_data>* write_queue_ptr = nullptr;
     std::mutex* write_mutex_ptr = nullptr;
 
     std::vector<write_data>* read_queue_ptr = nullptr;
     std::mutex* read_mutex_ptr = nullptr;
+
+    boost::system::error_code last_ec{};
 
     enum state
     {
@@ -379,8 +379,9 @@ struct session_data
         has_handshake,
         has_accept,
         read_write,
-        err,
         blocked,
+        err,
+        terminated,
     };
 
     state current_state = start;
@@ -390,8 +391,47 @@ struct session_data
         if(current_state == blocked)
             return;
 
-        if(current_state == err)
+        if(current_state == terminated)
             return;
+
+        if(current_state == err)
+        {
+            {
+                std::unique_lock guard(conn.mut);
+
+                for(int i=0; i < (int)conn.connected_clients.size(); i++)
+                {
+                    if(conn.connected_clients[i] == id)
+                    {
+                        conn.connected_clients.erase(conn.connected_clients.begin() + i);
+                        i--;
+                        continue;
+                    }
+                }
+            }
+
+            if(wps)
+            {
+                delete wps;
+                wps = nullptr;
+            }
+
+            if(socket)
+            {
+                delete socket;
+                socket = nullptr;
+            }
+
+            {
+                std::lock_guard guard(conn.disconnected_lock);
+                conn.disconnected_clients.push_back(id);
+            }
+
+            std::cout << "Got networking error " << last_ec << std::endl;
+
+            current_state = terminated;
+            return;
+        }
 
     try
     {
@@ -420,6 +460,7 @@ struct session_data
                 {
                     if(ec)
                     {
+                        last_ec = ec;
                         current_state = err;
                     }
                     else
@@ -452,6 +493,7 @@ struct session_data
             {
                 if(ec)
                 {
+                    last_ec = ec;
                     current_state = err;
                     return;
                 }
@@ -516,12 +558,12 @@ struct session_data
                     {
                         if(ec.failed())
                         {
+                            last_ec = ec;
                             current_state = err;
                             return;
                         }
 
                         async_write = false;
-                        should_continue = true;
                     });
 
                     write_queue.erase(it);
@@ -535,6 +577,7 @@ struct session_data
                 {
                     if(ec.failed())
                     {
+                        last_ec = ec;
                         current_state = err;
                         return;
                     }
@@ -560,7 +603,9 @@ struct session_data
     }
     catch(...)
     {
-        printf("Err");
+        printf("Err in session data");
+        last_ec = {};
+        current_state = err;
     }
     }
 };
@@ -628,6 +673,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
                     dat.id = id;
                     dat.socket = next_socket;
                     dat.ctx = &ctx;
+                    next_socket = nullptr;
                 }
             });
         }
@@ -635,42 +681,23 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
         acceptor_context.poll();
         acceptor_context.restart();
 
-        for(auto& i : all_session_data)
+        //for(auto& i : all_session_data)
+        for(auto it = all_session_data.begin(); it != all_session_data.end();)
         {
-            i.second.tick(conn);
+            it->second.tick(conn);
+
+            if(it->second.current_state == session_data<T>::terminated)
+            {
+                it = all_session_data.erase(it);
+            }
+            else
+            {
+                it++;
+            }
         }
 
         sf::sleep(sf::milliseconds(1));
     }
-
-    /*while(1)
-    {
-        boost::asio::io_context* next_context = nullptr;
-        tcp::socket* socket = nullptr;
-
-        try
-        {
-            next_context = new boost::asio::io_context{1};
-            socket = new tcp::socket{*next_context};
-
-            acceptor.accept(*socket);
-        }
-        catch(...)
-        {
-            if(socket)
-                delete socket;
-
-            if(next_context)
-                delete next_context;
-
-            sf::sleep(sf::milliseconds(1));
-            continue;
-        }
-
-        std::thread(server_session<T>, std::ref(conn), next_context, socket, std::ref(ctx)).detach();
-
-        sf::sleep(sf::milliseconds(1));;
-    }*/
 }
 #endif // ASYNC_THREAD
 
