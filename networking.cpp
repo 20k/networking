@@ -2012,10 +2012,11 @@ void connection::host(const std::string& address, uint16_t port, connection_type
     thread_is_server = true;
     is_client = false;
 
-    #ifdef SUPPORT_NO_SSL
+    #define SUPPORT_NO_SSL_SERVER
+    #ifdef SUPPORT_NO_SSL_SERVER
     if(type == connection_type::PLAIN)
         thrd.emplace_back(server_thread<websocket::stream<boost::beast::tcp_stream>>, std::ref(*this), address, port);
-    #endif // SUPPORT_NO_SSL
+    #endif // SUPPORT_NO_SSL_SERVER
 
     if(type == connection_type::SSL)
         thrd.emplace_back(server_thread<websocket::stream<ssl::stream<boost::beast::tcp_stream>>>, std::ref(*this), address, port);
@@ -2028,10 +2029,10 @@ void connection::connect(const std::string& address, uint16_t port, connection_t
     is_client = true;
 
     #ifndef __EMSCRIPTEN__
-    #ifdef SUPPORT_NO_SSL
+    #ifdef SUPPORT_NO_SSL_CLIENT
     if(type == connection_type::PLAIN)
         thrd.emplace_back(client_thread<websocket::stream<tcp::socket>>, std::ref(*this), address, port, sni_hostname, client_sleep_interval_ms);
-    #endif // SUPPORT_NO_SSL
+    #endif // SUPPORT_NO_SSL_CLIENT
 
     if(type == connection_type::SSL)
         thrd.emplace_back(client_thread<websocket::stream<ssl::stream<tcp::socket>>>, std::ref(*this), address, port, sni_hostname, client_sleep_interval_ms);
