@@ -554,6 +554,7 @@ struct session_data
                     if(next.id != id)
                     {
                         current_state = err;
+                        wake_queue.push_back(id);
                         return;
                     }
 
@@ -707,7 +708,9 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
         {
             auto it = all_session_data.find(i);
 
-            assert(it != all_session_data.end());
+            ///will get spurious wakes, because there's a period of time between a client being deleted, and the write queue being killed
+            if(it == all_session_data.end())
+                continue;
 
             it->second.tick(conn, wake_queue);
 
@@ -2139,6 +2142,12 @@ void connection::write_to(const write_data& data)
 
         {
             std::unique_lock guard(mut);
+
+            auto i1 = directed_write_queue.find(data.id);
+            auto i2 = directed_write_lock.find(data.id);
+
+            if(i1 == directed_write_queue.end() || i2 == directed_write_lock.end())
+                return;
 
             write_dat = &directed_write_queue[data.id];
             write_mutex = &directed_write_lock[data.id];
