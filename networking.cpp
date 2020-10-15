@@ -695,10 +695,8 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 
         {
             std::lock_guard guard(conn.wake_lock);
-            for(auto& i : conn.wake_queue)
-            {
-                wake_queue.push_back(i);
-            }
+
+            wake_queue.insert(wake_queue.end(), conn.wake_queue.begin(), conn.wake_queue.end());
             conn.wake_queue.clear();
         }
 
