@@ -598,13 +598,14 @@ struct session_data
 
                     std::string next = boost::beast::buffers_to_string(rbuffer.data());
 
-                    std::lock_guard guard(read_mutex);
+                    {
+                        write_data ndata;
+                        ndata.data = std::move(next);
+                        ndata.id = id;
 
-                    write_data ndata;
-                    ndata.data = std::move(next);
-                    ndata.id = id;
-
-                    read_queue.push_back(ndata);
+                        std::lock_guard guard(read_mutex);
+                        read_queue.push_back(ndata);
+                    }
 
                     rbuffer.clear();
 
