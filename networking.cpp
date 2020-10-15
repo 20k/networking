@@ -59,6 +59,7 @@ std::string read_file_bin(const std::string& file)
     return str;
 }
 
+#define CONNECTION_PER_THREAD
 #ifdef CONNECTION_PER_THREAD
 template<typename T>
 void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp::socket* psocket)
@@ -74,15 +75,15 @@ void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp:
     {
         boost::asio::ip::tcp::no_delay nagle(true);
 
-        if constexpr(std::is_same_v<T, websocket::stream<tcp::socket>>)
+        if constexpr(std::is_same_v<T, websocket::stream<boost::beast::tcp_stream>>)
         {
             wps = new T{std::move(socket)};
             wps->text(false);
 
-            wps->next_layer().set_option(nagle);
+            wps->next_layer().socket().set_option(nagle);
         }
 
-        if constexpr(std::is_same_v<T, websocket::stream<ssl::stream<tcp::socket>>>)
+        if constexpr(std::is_same_v<T, websocket::stream<ssl::stream<boost::beast::tcp_stream>>>)
         {
             static std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
             static std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
@@ -106,7 +107,7 @@ void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp:
             wps = new T{std::move(socket), ctx};
             wps->text(false);
 
-            wps->next_layer().next_layer().set_option(nagle);
+            wps->next_layer().next_layer().socket().set_option(nagle);
 
             wps->next_layer().handshake(ssl::stream_base::server);
         }
@@ -346,34 +347,8 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 }
 #endif // CONNECTION_PER_THREAD
 
-/*template<typename T>
-void session(std::shared_ptr<tcp::socket> sock) {
-    try {
-        for (;;) {
-            char data[1024*1024];
-            boost::system::error_code ec;
-            std::size_t length = sock->async_read_some(boost::asio::buffer(data), boost::fibers::asio::get_yield(ec));
-            if(ec == boost::asio::error::eof) {
-                break; //connection closed cleanly by peer
-            } else if(ec) {
-                throw boost::system::system_error(ec); //some other error
-            }
-            //print(tag(), ": handled: ", std::string(data, length));
-            boost::asio::async_write(*sock, boost::asio::buffer(data, length), boost::fibers::asio::get_yield(ec));
 
-            if(ec == boost::asio::error::eof) {
-                break; //connection closed cleanly by peer
-            } else if(ec) {
-                throw boost::system::system_error(ec); //some other error
-            }
-        }
-        //print(tag(), ": connection closed");
-    } catch (std::exception const& ex) {
-        //print(tag(), ": caught exception : ", ex.what());
-    }
-}*/
-
-#define ONE_FIBER_THREAD
+//#define ONE_FIBER_THREAD
 #ifdef ONE_FIBER_THREAD
 template<typename T>
 struct socket_data
