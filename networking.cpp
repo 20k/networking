@@ -642,8 +642,6 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
     ctx.use_tmp_dh(
         boost::asio::buffer(dh.data(), dh.size()));
 
-
-    boost::asio::io_context* next_context = nullptr;
     tcp::socket* next_socket = nullptr;
 
     std::map<uint64_t, session_data<T>> all_session_data;
@@ -652,7 +650,6 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
     {
         if(next_socket == nullptr)
         {
-            //next_context = new boost::asio::io_context{1};
             next_socket = new tcp::socket{acceptor_context};
 
             acceptor.async_accept(*next_socket, [&](auto ec)
@@ -660,10 +657,8 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
                 if(ec)
                 {
                     delete next_socket;
-                    //delete next_context;
-                    printf("Async accept error\n");
+                    std::cout << "Error in async accept " << ec << std::endl;
                     next_socket = nullptr;
-                    //next_context = nullptr;
                 }
                 else
                 {
@@ -681,7 +676,6 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
         acceptor_context.poll();
         acceptor_context.restart();
 
-        //for(auto& i : all_session_data)
         for(auto it = all_session_data.begin(); it != all_session_data.end();)
         {
             it->second.tick(conn);
