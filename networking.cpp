@@ -360,6 +360,8 @@ struct session_data
     T* wps = nullptr;
     uint64_t id = -1;
     tcp::socket socket;
+    bool can_cancel = false;
+    bool has_cancelled = false;
     ssl::context* ctx = nullptr;
 
     boost::beast::flat_buffer rbuffer;
@@ -399,7 +401,7 @@ struct session_data
         if(current_state == terminated)
             return;
 
-        if(current_state == err)
+        if(current_state == err && !async_read && !async_write)
         {
             {
                 std::unique_lock guard(conn.mut);
@@ -447,6 +449,19 @@ struct session_data
             return;
         }
 
+        if(current_state == err && (async_write || async_read))
+        {
+            if(can_cancel && !has_cancelled)
+            {
+                boost::system::error_code ec;
+                boost::beast::get_lowest_layer(*wps).socket().cancel(ec);
+                has_cancelled = true;
+            }
+
+            wake_queue.push_back(id);
+            return;
+        }
+
     try
     {
         if(current_state == start)
@@ -486,6 +501,8 @@ struct session_data
                     wake_queue.push_back(id);
                 });
             }
+
+            can_cancel = true;
         }
 
         if(current_state == has_handshake)
@@ -588,6 +605,7 @@ struct session_data
                             last_ec = ec;
                             current_state = err;
                             wake_queue.push_back(id);
+                            async_write = false;
                             return;
                         }
 
@@ -609,6 +627,7 @@ struct session_data
                         last_ec = ec;
                         current_state = err;
                         wake_queue.push_back(id);
+                        async_read = false;
                         return;
                     }
 
