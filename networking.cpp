@@ -519,6 +519,8 @@ struct session_data
             }));
 
             boost::beast::websocket::permessage_deflate opt;
+            ///enabling deflate causes server memory usage to climb extremely high
+            ///todo tomorrow: check if this is a real memory leak
             opt.server_enable = true;
             opt.client_enable = true;
 
