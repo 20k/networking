@@ -362,8 +362,8 @@ struct session_data
     tcp::socket socket;
     ssl::context* ctx = nullptr;
 
-    boost::beast::multi_buffer rbuffer;
-    boost::beast::multi_buffer wbuffer;
+    boost::beast::flat_buffer rbuffer;
+    boost::beast::flat_buffer wbuffer;
 
     bool async_read = false;
     bool async_write = false;

@@ -11,6 +11,7 @@
 #include <atomic>
 #include <map>
 #include <set>
+#include <deque>
 
 #ifndef NO_SERIALISATION
 #include "serialisable.hpp"
@@ -123,12 +124,12 @@ struct connection
     std::vector<uint64_t> wake_queue;
 
     std::atomic_int id = 0;
-    std::vector<uint64_t> new_clients;
+    std::deque<uint64_t> new_clients;
     std::vector<uint64_t> connected_clients;
     std::vector<std::thread> thrd;
 
     std::mutex disconnected_lock;
-    std::vector<uint64_t> disconnected_clients;
+    std::deque<uint64_t> disconnected_clients;
 
     std::mutex force_disconnection_lock;
     std::set<uint64_t> force_disconnection_queue;
