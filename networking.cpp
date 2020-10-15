@@ -704,11 +704,13 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
         acceptor_context.poll();
         acceptor_context.restart();
 
+        bool any_awake = wake_queue.size() > 0;
+
         for(auto& i : wake_queue)
         {
             auto it = all_session_data.find(i);
 
-            ///will get spurious wakes, because there's a period of time between a client being deleted, and the write queue being killed
+            ///will get spurious wakes
             if(it == all_session_data.end())
                 continue;
 
@@ -726,7 +728,8 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 
         wake_queue.clear();
 
-        sf::sleep(sf::milliseconds(1));
+        if(!any_awake)
+            sf::sleep(sf::milliseconds(1));
     }
 }
 #endif // ASYNC_THREAD
@@ -2142,12 +2145,6 @@ void connection::write_to(const write_data& data)
 
         {
             std::unique_lock guard(mut);
-
-            auto i1 = directed_write_queue.find(data.id);
-            auto i2 = directed_write_lock.find(data.id);
-
-            if(i1 == directed_write_queue.end() || i2 == directed_write_lock.end())
-                return;
 
             write_dat = &directed_write_queue[data.id];
             write_mutex = &directed_write_lock[data.id];
