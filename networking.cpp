@@ -501,13 +501,6 @@ struct session_data
 
                 current_state = has_accept;
 
-                {
-                    std::unique_lock guard(conn.mut);
-
-                    conn.new_clients.push_back(id);
-                    conn.connected_clients.push_back(id);
-                }
-
                 wake_queue.push_back(id);
             });
         }
@@ -517,13 +510,22 @@ struct session_data
             printf("Connection is negotiated\n");
             current_state = read_write;
 
-            std::unique_lock guard(conn.mut);
+            {
+                std::unique_lock guard(conn.mut);
 
-            write_queue_ptr = &conn.directed_write_queue[id];
-            write_mutex_ptr = &conn.directed_write_lock[id];
+                write_queue_ptr = &conn.directed_write_queue[id];
+                write_mutex_ptr = &conn.directed_write_lock[id];
 
-            read_queue_ptr = &conn.fine_read_queue[id];
-            read_mutex_ptr = &conn.fine_read_lock[id];
+                read_queue_ptr = &conn.fine_read_queue[id];
+                read_mutex_ptr = &conn.fine_read_lock[id];
+            }
+
+            {
+                std::unique_lock guard(conn.mut);
+
+                conn.new_clients.push_back(id);
+                conn.connected_clients.push_back(id);
+            }
             ///no need to wake
         }
 
@@ -2001,6 +2003,7 @@ bool connection::connection_pending()
 void connection::host(const std::string& address, uint16_t port, connection_type::type type)
 {
     thread_is_server = true;
+    is_client = false;
 
     #ifdef SUPPORT_NO_SSL
     if(type == connection_type::PLAIN)
@@ -2015,6 +2018,7 @@ void connection::host(const std::string& address, uint16_t port, connection_type
 void connection::connect(const std::string& address, uint16_t port, connection_type::type type, std::string sni_hostname)
 {
     thread_is_client = true;
+    is_client = true;
 
     #ifndef __EMSCRIPTEN__
     #ifdef SUPPORT_NO_SSL
