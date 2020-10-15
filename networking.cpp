@@ -573,12 +573,13 @@ struct session_data
                         return;
                     }
 
-                    async_write = true;
 
                     wbuffer.consume(wbuffer.size());
 
                     size_t n = buffer_copy(wbuffer.prepare(next.data.size()), boost::asio::buffer(next.data));
                     wbuffer.commit(n);
+
+                    async_write = true;
 
                     ws.async_write(wbuffer.data(), [&](boost::system::error_code ec, std::size_t)
                     {
@@ -687,7 +688,6 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
         if(!async_in_flight)
         {
             async_in_flight = true;
-            next_socket = tcp::socket{acceptor_context};
 
             acceptor.async_accept(next_socket, [&](auto ec)
             {
@@ -732,7 +732,9 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
         }*/
 
         acceptor_context.poll();
-        acceptor_context.restart();
+
+        if(acceptor_context.stopped())
+            acceptor_context.restart();
 
         bool any_awake = wake_queue.size() > 0;
 
@@ -2050,6 +2052,8 @@ void connection::connect(const std::string& address, uint16_t port, connection_t
     thread_is_client = true;
     is_client = true;
 
+    #ifdef SERVER_ONLY
+
     #ifndef __EMSCRIPTEN__
     #ifdef SUPPORT_NO_SSL_CLIENT
     if(type == connection_type::PLAIN)
@@ -2065,6 +2069,7 @@ void connection::connect(const std::string& address, uint16_t port, connection_t
 
     thrd.emplace_back(client_thread_tcp, std::ref(*this), address, port);
     #endif
+    #endif // SERVER_ONLY
 }
 
 void connection::write(const std::string& data)
