@@ -119,6 +119,9 @@ struct connection
     std::map<uint64_t, std::vector<write_data>> fine_read_queue;
     std::map<uint64_t, std::mutex> fine_read_lock;
 
+    std::mutex wake_lock;
+    std::vector<uint64_t> wake_queue;
+
     std::atomic_int id = 0;
     std::vector<uint64_t> new_clients;
     std::vector<uint64_t> connected_clients;

@@ -386,7 +386,7 @@ struct session_data
 
     state current_state = start;
 
-    void tick(connection& conn)
+    void tick(connection& conn, std::vector<uint64_t>& wake_queue)
     {
         if(current_state == blocked)
             return;
@@ -430,6 +430,7 @@ struct session_data
             std::cout << "Got networking error " << last_ec << std::endl;
 
             current_state = terminated;
+            wake_queue.push_back(id);
             return;
         }
 
@@ -447,6 +448,7 @@ struct session_data
 
                 wps->next_layer().socket().set_option(nagle);
                 current_state = has_handshake;
+                ///don't need to awake, as we didn't sleep
             }
 
             if constexpr(std::is_same_v<T, websocket::stream<ssl::stream<boost::beast::tcp_stream>>>)
@@ -467,6 +469,8 @@ struct session_data
                     {
                         current_state = has_handshake;
                     }
+
+                    wake_queue.push_back(id);
                 });
             }
         }
@@ -495,6 +499,7 @@ struct session_data
                 {
                     last_ec = ec;
                     current_state = err;
+                    wake_queue.push_back(id);
                     return;
                 }
 
@@ -506,6 +511,8 @@ struct session_data
                     conn.new_clients.push_back(id);
                     conn.connected_clients.push_back(id);
                 }
+
+                wake_queue.push_back(id);
             });
         }
 
@@ -521,6 +528,7 @@ struct session_data
 
             read_queue_ptr = &conn.fine_read_queue[id];
             read_mutex_ptr = &conn.fine_read_lock[id];
+            ///no need to wake
         }
 
         if(current_state == read_write)
@@ -533,6 +541,8 @@ struct session_data
             std::vector<write_data>& read_queue = *read_queue_ptr;
             std::mutex& read_mutex = *read_mutex_ptr;
 
+            ///so, theoretically if we don't have any writes, according to this state machine, we'll never wake up if a read doesn't hit us
+            ///the server is responsible for fixing this
             if(!async_write)
             {
                 std::lock_guard guard(write_mutex);
@@ -560,10 +570,12 @@ struct session_data
                         {
                             last_ec = ec;
                             current_state = err;
+                            wake_queue.push_back(id);
                             return;
                         }
 
                         async_write = false;
+                        wake_queue.push_back(id);
                     });
 
                     write_queue.erase(it);
@@ -579,6 +591,7 @@ struct session_data
                     {
                         last_ec = ec;
                         current_state = err;
+                        wake_queue.push_back(id);
                         return;
                     }
 
@@ -595,6 +608,7 @@ struct session_data
                     rbuffer.clear();
 
                     async_read = false;
+                    wake_queue.push_back(id);
                 });
 
                 async_read = true;
@@ -645,6 +659,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
     tcp::socket* next_socket = nullptr;
 
     std::map<uint64_t, session_data<T>> all_session_data;
+    std::vector<uint64_t> wake_queue;
 
     while(1)
     {
@@ -669,16 +684,31 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
                     dat.socket = next_socket;
                     dat.ctx = &ctx;
                     next_socket = nullptr;
+
+                    wake_queue.push_back(id);
                 }
             });
+        }
+
+        {
+            std::lock_guard guard(conn.wake_lock);
+            for(auto& i : conn.wake_queue)
+            {
+                wake_queue.push_back(i);
+            }
+            conn.wake_queue.clear();
         }
 
         acceptor_context.poll();
         acceptor_context.restart();
 
-        for(auto it = all_session_data.begin(); it != all_session_data.end();)
+        for(auto& i : wake_queue)
         {
-            it->second.tick(conn);
+            auto it = all_session_data.find(i);
+
+            assert(it != all_session_data.end());
+
+            it->second.tick(conn, wake_queue);
 
             if(it->second.current_state == session_data<T>::terminated)
             {
@@ -689,6 +719,8 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
                 it++;
             }
         }
+
+        wake_queue.clear();
 
         sf::sleep(sf::milliseconds(1));
     }
@@ -1484,7 +1516,6 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 }
 #endif // 0
 
-
 template<typename T>
 void client_thread(connection& conn, std::string address, uint16_t port, std::string sni_hostname, uint64_t client_sleep_time_ms)
 {
@@ -1588,6 +1619,11 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
 
         while(1)
         {
+            {
+                std::lock_guard guard(conn.wake_lock);
+                conn.wake_queue.clear();
+            }
+
             try
             {
                 if(!async_write)
@@ -2096,19 +2132,26 @@ void connection::set_client_sleep_interval(uint64_t time_ms)
 
 void connection::write_to(const write_data& data)
 {
-    std::vector<write_data>* write_dat = nullptr;
-    std::mutex* write_mutex = nullptr;
-
     {
-        std::unique_lock guard(mut);
+        std::vector<write_data>* write_dat = nullptr;
+        std::mutex* write_mutex = nullptr;
 
-        write_dat = &directed_write_queue[data.id];
-        write_mutex = &directed_write_lock[data.id];
+        {
+            std::unique_lock guard(mut);
+
+            write_dat = &directed_write_queue[data.id];
+            write_mutex = &directed_write_lock[data.id];
+        }
+
+        std::lock_guard guard(*write_mutex);
+
+        write_dat->push_back(data);
     }
 
-    std::lock_guard guard(*write_mutex);
-
-    write_dat->push_back(data);
+    {
+        std::lock_guard guard(wake_lock);
+        wake_queue.push_back(data.id);
+    }
 }
 
 std::optional<uint64_t> connection::has_new_client()
