@@ -620,6 +620,7 @@ struct session_data
         printf("Err in session data\n");
         last_ec = {};
         current_state = err;
+        wake_queue.push_back(id);
     }
     }
 };
