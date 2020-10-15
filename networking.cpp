@@ -424,6 +424,20 @@ struct session_data
             {
                 std::lock_guard guard(conn.disconnected_lock);
                 conn.disconnected_clients.push_back(id);
+
+                {
+                    std::lock_guard guard(conn.mut);
+
+                    for(int i=0; i < conn.new_clients.size(); i++)
+                    {
+                        if(conn.new_clients[i] == id)
+                        {
+                            conn.new_clients.erase(conn.new_clients.begin() + i);
+                            i--;
+                            continue;
+                        }
+                    }
+                }
             }
 
             std::cout << "Got networking error " << last_ec.message() << std::endl;
@@ -707,6 +721,15 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
             wake_queue.insert(wake_queue.end(), conn.wake_queue.begin(), conn.wake_queue.end());
             conn.wake_queue.clear();
         }
+
+        /*{
+            std::lock_guard guard(conn.mut);
+
+            std::cout << "WRITE QUEUE " << conn.directed_write_queue.size() << std::endl;
+            std::cout << "WRITE lk " << conn.directed_write_lock.size() << std::endl;
+            std::cout << "READ q " << conn.fine_read_queue.size() << std::endl;
+            std::cout << "READ lk " << conn.fine_read_lock.size() << std::endl;
+        }*/
 
         acceptor_context.poll();
         acceptor_context.restart();
@@ -2012,7 +2035,6 @@ void connection::host(const std::string& address, uint16_t port, connection_type
     thread_is_server = true;
     is_client = false;
 
-    #define SUPPORT_NO_SSL_SERVER
     #ifdef SUPPORT_NO_SSL_SERVER
     if(type == connection_type::PLAIN)
         thrd.emplace_back(server_thread<websocket::stream<boost::beast::tcp_stream>>, std::ref(*this), address, port);
