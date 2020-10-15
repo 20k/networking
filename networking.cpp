@@ -603,7 +603,7 @@ struct session_data
     }
     catch(...)
     {
-        printf("Err in session data");
+        printf("Err in session data\n");
         last_ec = {};
         current_state = err;
     }
@@ -661,7 +661,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
                 {
                     delete next_socket;
                     //delete next_context;
-                    printf("Async accept error");
+                    printf("Async accept error\n");
                     next_socket = nullptr;
                     //next_context = nullptr;
                 }
