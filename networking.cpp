@@ -356,7 +356,7 @@ struct session_data
 {
     T* wps = nullptr;
     uint64_t id = -1;
-    tcp::socket* socket = nullptr;
+    tcp::socket socket;
     ssl::context* ctx = nullptr;
 
     boost::beast::multi_buffer rbuffer;
@@ -385,6 +385,8 @@ struct session_data
     };
 
     state current_state = start;
+
+    session_data(tcp::socket&& _sock) : socket(std::move(_sock)){}
 
     void tick(connection& conn, std::vector<uint64_t>& wake_queue)
     {
@@ -416,12 +418,6 @@ struct session_data
                 wps = nullptr;
             }
 
-            if(socket)
-            {
-                delete socket;
-                socket = nullptr;
-            }
-
             {
                 std::lock_guard guard(conn.disconnected_lock);
                 conn.disconnected_clients.push_back(id);
@@ -443,7 +439,7 @@ struct session_data
 
             if constexpr(std::is_same_v<T, websocket::stream<boost::beast::tcp_stream>>)
             {
-                wps = new T{std::move(*socket)};
+                wps = new T{std::move(socket)};
                 wps->text(false);
 
                 wps->next_layer().socket().set_option(nagle);
@@ -453,7 +449,7 @@ struct session_data
 
             if constexpr(std::is_same_v<T, websocket::stream<ssl::stream<boost::beast::tcp_stream>>>)
             {
-                wps = new T{std::move(*socket), *ctx};
+                wps = new T{std::move(socket), *ctx};
                 wps->text(false);
 
                 wps->next_layer().next_layer().socket().set_option(nagle);
@@ -659,36 +655,43 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
     ctx.use_tmp_dh(
         boost::asio::buffer(dh.data(), dh.size()));
 
-    tcp::socket* next_socket = nullptr;
+    //tcp::socket* next_socket = nullptr;
+
+    tcp::socket next_socket{acceptor_context};
+    bool async_in_flight = false;
 
     std::map<uint64_t, session_data<T>> all_session_data;
     std::vector<uint64_t> wake_queue;
 
     while(1)
     {
-        if(next_socket == nullptr)
+        if(!async_in_flight)
         {
-            next_socket = new tcp::socket{acceptor_context};
+            async_in_flight = true;
+            next_socket = tcp::socket{acceptor_context};
 
-            acceptor.async_accept(*next_socket, [&](auto ec)
+            acceptor.async_accept(next_socket, [&](auto ec)
             {
                 if(ec)
                 {
-                    delete next_socket;
                     std::cout << "Error in async accept " << ec << std::endl;
-                    next_socket = nullptr;
+                    next_socket = tcp::socket{acceptor_context};
+                    async_in_flight = false;
                 }
                 else
                 {
                     uint64_t id = conn.id++;
-                    session_data<T>& dat = all_session_data[id];
+
+                    std::pair vals = all_session_data.emplace(id, std::move(next_socket));
+
+                    session_data<T>& dat = vals.first->second;
 
                     dat.id = id;
-                    dat.socket = next_socket;
                     dat.ctx = &ctx;
-                    next_socket = nullptr;
+                    next_socket = tcp::socket{acceptor_context};
 
                     wake_queue.push_back(id);
+                    async_in_flight = false;
                 }
             });
         }
