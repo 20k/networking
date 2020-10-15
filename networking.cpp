@@ -62,14 +62,13 @@ std::string read_file_bin(const std::string& file)
 #define CONNECTION_PER_THREAD
 #ifdef CONNECTION_PER_THREAD
 template<typename T>
-void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp::socket* psocket)
+void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp::socket* psocket, ssl::context& ctx)
 {
     auto& socket_ioc = *psocket_ioc;
     auto& socket = *psocket;
 
     uint64_t id = -1;
     T* wps = nullptr;
-    ssl::context ctx{ssl::context::tls_server};
 
     try
     {
@@ -85,25 +84,6 @@ void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp:
 
         if constexpr(std::is_same_v<T, websocket::stream<ssl::stream<boost::beast::tcp_stream>>>)
         {
-            static std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
-            static std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
-            static std::string key = read_file_bin("./deps/secret/cert/key.pem");
-
-            ctx.set_options(boost::asio::ssl::context::default_workarounds |
-                            boost::asio::ssl::context::no_sslv2 |
-                            boost::asio::ssl::context::single_dh_use |
-                            boost::asio::ssl::context::no_sslv3);
-
-            ctx.use_certificate_chain(
-                boost::asio::buffer(cert.data(), cert.size()));
-
-            ctx.use_private_key(
-                boost::asio::buffer(key.data(), key.size()),
-                boost::asio::ssl::context::file_format::pem);
-
-            ctx.use_tmp_dh(
-                boost::asio::buffer(dh.data(), dh.size()));
-
             wps = new T{std::move(socket), ctx};
             wps->text(false);
 
@@ -316,6 +296,27 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
     tcp::acceptor acceptor{acceptor_context, {address, port}};
     acceptor.set_option(boost::asio::socket_base::reuse_address(true));
 
+    ssl::context ctx{ssl::context::tls_server};
+
+    std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
+    std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
+    std::string key = read_file_bin("./deps/secret/cert/key.pem");
+
+    ctx.set_options(boost::asio::ssl::context::default_workarounds |
+                    boost::asio::ssl::context::no_sslv2 |
+                    boost::asio::ssl::context::single_dh_use |
+                    boost::asio::ssl::context::no_sslv3);
+
+    ctx.use_certificate_chain(
+        boost::asio::buffer(cert.data(), cert.size()));
+
+    ctx.use_private_key(
+        boost::asio::buffer(key.data(), key.size()),
+        boost::asio::ssl::context::file_format::pem);
+
+    ctx.use_tmp_dh(
+        boost::asio::buffer(dh.data(), dh.size()));
+
     while(1)
     {
         boost::asio::io_context* next_context = nullptr;
@@ -340,7 +341,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
             continue;
         }
 
-        std::thread(server_session<T>, std::ref(conn), next_context, socket).detach();
+        std::thread(server_session<T>, std::ref(conn), next_context, socket, std::ref(ctx)).detach();
 
         sf::sleep(sf::milliseconds(1));;
     }
@@ -632,7 +633,7 @@ void read_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
 
     term++;
 }
-#endif // 0
+#else
 
 template<typename T>
 void read_write_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
@@ -799,6 +800,7 @@ void read_write_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
 
     term++;
 }
+#endif // 1
 
 template<typename T>
 void disconnect_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
@@ -832,9 +834,26 @@ void disconnect_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
     term++;
 }
 
-template<typename T>
-void session(connection& conn, tcp::socket& in, int& session_count, boost::asio::ssl::context& ssl_context)
+void io_poll(connection& conn, boost::asio::io_context* nctx, int& term)
 {
+    while(term == 0)
+    {
+        nctx->poll();
+        nctx->restart();
+
+        boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    term++;
+}
+
+template<typename T>
+void session(connection& conn, tcp::socket& in, int& session_count, boost::asio::ssl::context& ssl_context, boost::asio::io_context* nctx)
+{
+    int should_term = 0;
+
+    boost::fibers::fiber f3(io_poll, std::ref(conn), nctx, std::ref(should_term));
+
     socket_data<T> sock;
 
     try
@@ -861,8 +880,6 @@ void session(connection& conn, tcp::socket& in, int& session_count, boost::asio:
         conn.connected_clients.push_back(id);
     }
 
-    int should_term = 0;
-
     #if 1
     boost::fibers::fiber f1(read_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
     boost::fibers::fiber f2(write_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
@@ -875,6 +892,7 @@ void session(connection& conn, tcp::socket& in, int& session_count, boost::asio:
 
     f1.join();
     f2.join();
+    f3.join();
     #endif // 0
     //f3.join();
 
@@ -906,7 +924,7 @@ void session(connection& conn, tcp::socket& in, int& session_count, boost::asio:
 }
 
 template<typename T>
-void server(connection& conn,boost::asio::io_context& io_ctx, tcp::acceptor& a) {
+void server(connection& conn, boost::asio::io_context& io_ctx, tcp::acceptor& a) {
     try {
         static std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
         static std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
@@ -932,6 +950,8 @@ void server(connection& conn,boost::asio::io_context& io_ctx, tcp::acceptor& a) 
         int max_sessions = 256;
         int session_count = 0;
 
+
+
         for (;;) {
 
             /*while(session_count >= max_sessions)
@@ -941,7 +961,9 @@ void server(connection& conn,boost::asio::io_context& io_ctx, tcp::acceptor& a) 
 
             //std::shared_ptr<tcp::socket> socket(new tcp::socket(*io_ctx));
 
-            tcp::socket socket(io_ctx);
+            boost::asio::io_context* nctx = new boost::asio::io_context{1};
+
+            tcp::socket socket(*nctx);
 
             printf("Pre accept\n");
 
@@ -961,7 +983,7 @@ void server(connection& conn,boost::asio::io_context& io_ctx, tcp::acceptor& a) 
                 //throw boost::system::system_error(ec); //some other error
                 printf("Error in server async_accept\n");
             } else {
-                boost::fibers::fiber(session<T>, std::ref(conn), std::ref(socket), std::ref(session_count), std::ref(ssl_context)).detach();
+                boost::fibers::fiber(session<T>, std::ref(conn), std::ref(socket), std::ref(session_count), std::ref(ssl_context), nctx).detach();
             }
 
             boost::this_fiber::sleep_for(std::chrono::milliseconds(16));
