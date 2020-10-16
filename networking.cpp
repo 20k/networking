@@ -466,6 +466,8 @@ struct session_data
     {
         if(current_state == start)
         {
+            printf("Start\n");
+
             current_state = blocked;
             boost::asio::ip::tcp::no_delay nagle(true);
 
@@ -507,6 +509,8 @@ struct session_data
 
         if(current_state == has_handshake)
         {
+            printf("Handshake\n");
+
             current_state = blocked;
             assert(wps != nullptr);
 
@@ -703,6 +707,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 
     std::map<uint64_t, session_data<T>> all_session_data;
     std::vector<uint64_t> wake_queue;
+    std::vector<uint64_t> next_wake_queue;
 
     while(1)
     {
@@ -736,13 +741,6 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
             });
         }
 
-        {
-            std::lock_guard guard(conn.wake_lock);
-
-            wake_queue.insert(wake_queue.end(), conn.wake_queue.begin(), conn.wake_queue.end());
-            conn.wake_queue.clear();
-        }
-
         /*{
             std::lock_guard guard(conn.mut);
 
@@ -757,9 +755,22 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
         if(acceptor_context.stopped())
             acceptor_context.restart();
 
+        {
+            std::lock_guard guard(conn.wake_lock);
+
+            wake_queue.insert(wake_queue.end(), conn.wake_queue.begin(), conn.wake_queue.end());
+            conn.wake_queue.clear();
+
+            wake_queue.insert(wake_queue.end(), next_wake_queue.begin(), next_wake_queue.end());
+            next_wake_queue.clear();
+        }
+
         bool any_awake = wake_queue.size() > 0;
 
+        //std::cout << "WQ size " << wake_queue.size() << std::endl;
+
         for(auto& i : wake_queue)
+        //for(auto it = all_session_data.begin(); it != all_session_data.end();)
         {
             auto it = all_session_data.find(i);
 
@@ -767,7 +778,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
             if(it == all_session_data.end())
                 continue;
 
-            it->second.tick(conn, wake_queue);
+            it->second.tick(conn, next_wake_queue);
 
             if(it->second.current_state == session_data<T>::terminated)
             {
