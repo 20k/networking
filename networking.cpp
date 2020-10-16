@@ -466,8 +466,6 @@ struct session_data
     {
         if(current_state == start)
         {
-            printf("Start\n");
-
             current_state = blocked;
             boost::asio::ip::tcp::no_delay nagle(true);
 
@@ -509,8 +507,6 @@ struct session_data
 
         if(current_state == has_handshake)
         {
-            printf("Handshake\n");
-
             current_state = blocked;
             assert(wps != nullptr);
 
