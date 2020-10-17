@@ -446,10 +446,10 @@ struct session_data
             std::cout << "Got networking error " << last_ec.message() << " With value " << last_ec << std::endl;
 
             current_state = terminated;
-            wake_queue.push_back(id);
             return;
         }
 
+        ///the callbacks for both async_write and async_read both cause this to wake
         if(current_state == err && (async_write || async_read))
         {
             if(can_cancel && !has_cancelled)
@@ -459,7 +459,6 @@ struct session_data
                 has_cancelled = true;
             }
 
-            wake_queue.push_back(id);
             return;
         }
 
@@ -475,6 +474,7 @@ struct session_data
                 wps = new T{std::move(socket)};
                 wps->text(false);
                 wps->write_buffer_bytes(8192);
+                wps->read_message_max(sett.max_read_size);
 
                 wps->next_layer().socket().set_option(nagle);
                 current_state = has_handshake;
@@ -486,6 +486,7 @@ struct session_data
                 wps = new T{std::move(socket), *ctx};
                 wps->text(false);
                 wps->write_buffer_bytes(8192);
+                wps->read_message_max(sett.max_read_size);
 
                 wps->next_layer().next_layer().socket().set_option(nagle);
 
@@ -713,8 +714,12 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
     std::vector<uint64_t> wake_queue;
     std::vector<uint64_t> next_wake_queue;
 
+    uint64_t tick = 0;
+
     while(1)
     {
+        tick++;
+
         if(!async_in_flight)
         {
             async_in_flight = true;
@@ -758,6 +763,25 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
 
             wake_queue.insert(wake_queue.end(), next_wake_queue.begin(), next_wake_queue.end());
             next_wake_queue.clear();
+        }
+
+        if((tick % 100) == 0)
+        {
+            std::lock_guard guard(conn.force_disconnection_lock);
+
+            for(auto i : conn.force_disconnection_queue)
+            {
+                auto it = all_session_data.find(i);
+
+                if(it != all_session_data.end())
+                {
+                    it->second.current_state = session_data<T>::err;
+
+                    wake_queue.push_back(it->first);
+                }
+            }
+
+            conn.force_disconnection_queue.clear();
         }
 
         bool any_awake = wake_queue.size() > 0;
@@ -2059,8 +2083,10 @@ bool connection::connection_pending()
 }
 
 #ifndef __EMSCRIPTEN__
-void connection::host(const std::string& address, uint16_t port, connection_type::type type, connection_settings sett)
+void connection::host(const std::string& address, uint16_t port, connection_type::type type, connection_settings _sett)
 {
+    sett = _sett;
+
     thread_is_server = true;
     is_client = false;
 
@@ -2193,7 +2219,7 @@ void connection::pop_read(uint64_t id)
     read_queue.erase(read_queue.begin());*/
 }
 
-void connection::force_disconnect(uint64_t id)
+void connection::force_disconnect(uint64_t id) noexcept
 {
     std::scoped_lock guard(force_disconnection_lock);
 
@@ -2207,6 +2233,9 @@ void connection::set_client_sleep_interval(uint64_t time_ms)
 
 void connection::write_to(const write_data& data)
 {
+    if(data.data.size() > sett.max_write_size)
+        throw std::runtime_error("Exceeded max write size to client " + std::to_string(data.id) + " with size " + std::to_string(data.data.size()) + ". Max size is " + std::to_string(sett.max_write_size));
+
     {
         std::vector<write_data>* write_dat = nullptr;
         std::mutex* write_mutex = nullptr;

@@ -46,6 +46,11 @@ struct connection_settings
     int memory_level = 4;
     int max_window_bits = 15; ///affects socket memory usage, must be >= 9
     bool enable_compression = true;
+
+    ///uncompressed, handled through boost::beast
+    uint64_t max_read_size = 16 * 1024 * 1024;
+    ///uncompressed unfortunately, handled through beast
+    uint64_t max_write_size = 16 * 1024 * 1024;
 };
 
 struct connection
@@ -70,7 +75,7 @@ struct connection
     //std::string read();
     void pop_read(uint64_t id);
 
-    void force_disconnect(uint64_t id);
+    void force_disconnect(uint64_t id) noexcept;
 
     void set_client_sleep_interval(uint64_t time_ms);
 
@@ -152,6 +157,7 @@ private:
     bool is_client = true;
     bool is_connected = false;
     int client_sleep_interval_ms = 1;
+    connection_settings sett;
 };
 
 namespace network_mode
