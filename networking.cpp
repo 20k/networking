@@ -473,6 +473,7 @@ struct session_data
             {
                 wps = new T{std::move(socket)};
                 wps->text(false);
+                wps->write_buffer_bytes(1024);
 
                 wps->next_layer().socket().set_option(nagle);
                 current_state = has_handshake;
@@ -483,6 +484,7 @@ struct session_data
             {
                 wps = new T{std::move(socket), *ctx};
                 wps->text(false);
+                wps->write_buffer_bytes(1024);
 
                 wps->next_layer().next_layer().socket().set_option(nagle);
 
