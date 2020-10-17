@@ -439,7 +439,7 @@ struct session_data
                 }
             }
 
-            std::cout << "Got networking error " << last_ec.message() << " With value " << last_ec << std::endl;
+            printf("Got networking error %s with value %s:%i\n", last_ec.message().c_str(), last_ec.category().name(), last_ec.value());
 
             current_state = terminated;
             return;
