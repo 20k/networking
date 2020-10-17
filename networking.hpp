@@ -40,9 +40,17 @@ namespace connection_type
     };
 }
 
+struct connection_settings
+{
+    int compression_level = 8;
+    int memory_level = 4;
+    int max_window_bits = 15; ///affects socket memory usage, must be >= 9
+    bool enable_compression = true;
+};
+
 struct connection
 {
-    void host(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN);
+    void host(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN, connection_settings sett = connection_settings());
     void connect(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN, std::string sni_hostname = "");
 
     std::optional<uint64_t> has_new_client();

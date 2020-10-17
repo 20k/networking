@@ -363,6 +363,7 @@ struct session_data
     bool can_cancel = false;
     bool has_cancelled = false;
     ssl::context* ctx = nullptr;
+    connection_settings sett;
 
     boost::beast::flat_buffer rbuffer;
     boost::beast::flat_buffer wbuffer;
@@ -391,7 +392,7 @@ struct session_data
 
     state current_state = start;
 
-    session_data(tcp::socket&& _sock) : socket(std::move(_sock)){}
+    session_data(tcp::socket&& _sock, connection_settings _sett) : socket(std::move(_sock)), sett(_sett){}
 
     void tick(connection& conn, std::vector<uint64_t>& wake_queue)
     {
@@ -430,7 +431,7 @@ struct session_data
                 {
                     std::lock_guard guard(conn.mut);
 
-                    for(int i=0; i < conn.new_clients.size(); i++)
+                    for(int i=0; i < (int)conn.new_clients.size(); i++)
                     {
                         if(conn.new_clients[i] == id)
                         {
@@ -442,7 +443,7 @@ struct session_data
                 }
             }
 
-            std::cout << "Got networking error " << last_ec.message() << std::endl;
+            std::cout << "Got networking error " << last_ec.message() << " With value " << last_ec << std::endl;
 
             current_state = terminated;
             wake_queue.push_back(id);
@@ -520,13 +521,20 @@ struct session_data
                 res.insert(boost::beast::http::field::sec_websocket_protocol, "binary");
             }));
 
-            boost::beast::websocket::permessage_deflate opt;
-            ///enabling deflate causes server memory usage to climb extremely high
-            ///todo tomorrow: check if this is a real memory leak
-            opt.server_enable = true;
-            opt.client_enable = true;
+            if(sett.enable_compression)
+            {
+                boost::beast::websocket::permessage_deflate opt;
+                ///enabling deflate causes server memory usage to climb extremely high
+                ///todo tomorrow: check if this is a real memory leak
+                opt.server_enable = true;
+                opt.client_enable = true;
+                opt.server_max_window_bits = sett.max_window_bits;
+                opt.memLevel = sett.memory_level;
+                opt.compLevel = sett.compression_level;
 
-            ws.set_option(opt);
+                ws.set_option(opt);
+            }
+
             ws.async_accept([&](auto ec)
             {
                 if(ec)
@@ -667,7 +675,7 @@ struct session_data
 };
 
 template<typename T>
-void server_thread(connection& conn, std::string saddress, uint16_t port)
+void server_thread(connection& conn, std::string saddress, uint16_t port, connection_settings sett)
 {
     auto const address = boost::asio::ip::make_address(saddress);
 
@@ -698,8 +706,6 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
     ctx.use_tmp_dh(
         boost::asio::buffer(dh.data(), dh.size()));
 
-    //tcp::socket* next_socket = nullptr;
-
     tcp::socket next_socket{acceptor_context};
     bool async_in_flight = false;
 
@@ -725,7 +731,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
                 {
                     uint64_t id = conn.id++;
 
-                    std::pair vals = all_session_data.emplace(id, std::move(next_socket));
+                    std::pair vals = all_session_data.emplace(id, session_data<T>(std::move(next_socket), sett));
 
                     session_data<T>& dat = vals.first->second;
 
@@ -738,15 +744,6 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
                 }
             });
         }
-
-        /*{
-            std::lock_guard guard(conn.mut);
-
-            std::cout << "WRITE QUEUE " << conn.directed_write_queue.size() << std::endl;
-            std::cout << "WRITE lk " << conn.directed_write_lock.size() << std::endl;
-            std::cout << "READ q " << conn.fine_read_queue.size() << std::endl;
-            std::cout << "READ lk " << conn.fine_read_lock.size() << std::endl;
-        }*/
 
         acceptor_context.poll();
 
@@ -790,7 +787,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 
         wake_queue.clear();
 
-        if(!any_awake)
+        if(!any_awake && next_wake_queue.size() == 0)
             sf::sleep(sf::milliseconds(1));
     }
 }
@@ -2062,18 +2059,18 @@ bool connection::connection_pending()
 }
 
 #ifndef __EMSCRIPTEN__
-void connection::host(const std::string& address, uint16_t port, connection_type::type type)
+void connection::host(const std::string& address, uint16_t port, connection_type::type type, connection_settings sett)
 {
     thread_is_server = true;
     is_client = false;
 
     #ifdef SUPPORT_NO_SSL_SERVER
     if(type == connection_type::PLAIN)
-        thrd.emplace_back(server_thread<websocket::stream<boost::beast::tcp_stream>>, std::ref(*this), address, port);
+        thrd.emplace_back(server_thread<websocket::stream<boost::beast::tcp_stream>>, std::ref(*this), address, port, sett);
     #endif // SUPPORT_NO_SSL_SERVER
 
     if(type == connection_type::SSL)
-        thrd.emplace_back(server_thread<websocket::stream<ssl::stream<boost::beast::tcp_stream>>>, std::ref(*this), address, port);
+        thrd.emplace_back(server_thread<websocket::stream<ssl::stream<boost::beast::tcp_stream>>>, std::ref(*this), address, port, sett);
 }
 #endif // __EMSCRIPTEN__
 
