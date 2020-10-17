@@ -39,10 +39,6 @@
 #include <SFML/System/Sleep.hpp>
 #include <fstream>
 
-#include <boost/fiber/all.hpp>
-#include "fiber_round_robin.hpp"
-#include "fiber_yield.hpp"
-
 using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
 namespace websocket = boost::beast::websocket;  // from <boost/beast/websocket.hpp>
 namespace ssl = boost::asio::ssl;               // from <boost/asio/ssl.hpp>
