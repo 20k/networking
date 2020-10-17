@@ -771,7 +771,11 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
 
                 if(it != all_session_data.end())
                 {
-                    it->second.current_state = session_data<T>::err;
+                    ///if we're not terminated, and we're not already in an error, transition
+                    if(it->second.current_state != session_data<T>::err && it->second.current_state != session_data<T>::terminated)
+                    {
+                        it->second.current_state = session_data<T>::err;
+                    }
 
                     wake_queue.push_back(it->first);
                 }
