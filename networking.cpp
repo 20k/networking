@@ -783,9 +783,6 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
             conn.force_disconnection_queue.clear();
         }
 
-        bool any_awake = wake_queue.size() > 0;
-
-        //std::cout << "WQ size " << wake_queue.size() << std::endl;
 
         for(auto& i : wake_queue)
         //for(auto it = all_session_data.begin(); it != all_session_data.end();)
@@ -808,10 +805,10 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
             }
         }
 
-        wake_queue.clear();
-
-        if(!any_awake && next_wake_queue.size() == 0)
+        if(wake_queue.size() == 0 && next_wake_queue.size() == 0)
             sf::sleep(sf::milliseconds(1));
+
+        wake_queue.clear();
     }
 }
 #endif // ASYNC_THREAD
