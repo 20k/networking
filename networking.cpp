@@ -115,7 +115,6 @@ void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp:
             std::unique_lock guard(conn.mut);
 
             conn.new_clients.push_back(id);
-            conn.connected_clients.push_back(id);
         }
 
         boost::beast::multi_buffer rbuffer;
@@ -255,20 +254,6 @@ void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp:
         std::cerr << "Error: " << e.what() << std::endl;
     }
 
-    {
-        std::unique_lock guard(conn.mut);
-
-        for(int i=0; i < (int)conn.connected_clients.size(); i++)
-        {
-            if(conn.connected_clients[i] == id)
-            {
-                conn.connected_clients.erase(conn.connected_clients.begin() + i);
-                i--;
-                continue;
-            }
-        }
-    }
-
     if(wps)
     {
         delete wps;
@@ -400,43 +385,10 @@ struct session_data
 
         if(current_state == err && !async_read && !async_write)
         {
-            {
-                std::unique_lock guard(conn.mut);
-
-                for(int i=0; i < (int)conn.connected_clients.size(); i++)
-                {
-                    if(conn.connected_clients[i] == id)
-                    {
-                        conn.connected_clients.erase(conn.connected_clients.begin() + i);
-                        i--;
-                        continue;
-                    }
-                }
-            }
-
             if(wps)
             {
                 delete wps;
                 wps = nullptr;
-            }
-
-            {
-                std::lock_guard guard(conn.disconnected_lock);
-                conn.disconnected_clients.push_back(id);
-
-                {
-                    std::lock_guard guard(conn.mut);
-
-                    for(int i=0; i < (int)conn.new_clients.size(); i++)
-                    {
-                        if(conn.new_clients[i] == id)
-                        {
-                            conn.new_clients.erase(conn.new_clients.begin() + i);
-                            i--;
-                            continue;
-                        }
-                    }
-                }
             }
 
             printf("Got networking error %s with value %s:%i\n", last_ec.message().c_str(), last_ec.category().name(), last_ec.value());
@@ -567,7 +519,6 @@ struct session_data
                 std::unique_lock guard(conn.mut);
 
                 conn.new_clients.push_back(id);
-                conn.connected_clients.push_back(id);
             }
             ///no need to wake
         }
@@ -706,7 +657,9 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
     tcp::socket next_socket{acceptor_context};
     bool async_in_flight = false;
 
-    std::map<uint64_t, session_data<T>> all_session_data;
+    ///owning, individual elements are recycled
+    std::vector<session_data<T>*> all_session_data;
+
     std::vector<uint64_t> wake_queue;
     std::vector<uint64_t> next_wake_queue;
 
@@ -730,14 +683,29 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                 }
                 else
                 {
-                    uint64_t id = conn.id++;
+                    uint64_t id = -1;
 
-                    std::pair vals = all_session_data.emplace(id, session_data<T>(std::move(next_socket), sett));
+                    {
+                        std::lock_guard guard(conn.free_id_queue_lock);
 
-                    session_data<T>& dat = vals.first->second;
+                        if(conn.free_id_queue.size() == 0)
+                        {
+                            id = conn.id++;
+                            all_session_data.push_back(nullptr);
+                        }
+                        else
+                        {
+                            id = conn.free_id_queue.back();
+                            conn.free_id_queue.pop_back();
+                        }
+                    }
 
-                    dat.id = id;
-                    dat.ctx = &ctx;
+                    session_data<T>* dat = new session_data<T>(std::move(next_socket), sett);
+
+                    all_session_data[id] = dat;
+
+                    dat->id = id;
+                    dat->ctx = &ctx;
                     next_socket = tcp::socket{acceptor_context};
 
                     wake_queue.push_back(id);
@@ -767,41 +735,58 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
 
             for(auto i : conn.force_disconnection_queue)
             {
-                auto it = all_session_data.find(i);
+                if(i >= all_session_data.size())
+                    continue;
 
-                if(it != all_session_data.end())
+                session_data<T>* pdata = all_session_data[i];
+
+                ///if we're not terminated, and we're not already in an error, transition
+                if(pdata->current_state != session_data<T>::err && pdata->current_state != session_data<T>::terminated)
                 {
-                    ///if we're not terminated, and we're not already in an error, transition
-                    if(it->second.current_state != session_data<T>::err && it->second.current_state != session_data<T>::terminated)
-                    {
-                        it->second.current_state = session_data<T>::err;
-                        wake_queue.push_back(it->first);
-                    }
+                    pdata->current_state = session_data<T>::err;
+                    wake_queue.push_back(i);
                 }
             }
 
             conn.force_disconnection_queue.clear();
         }
 
-
-        for(auto& i : wake_queue)
-        //for(auto it = all_session_data.begin(); it != all_session_data.end();)
+        for(auto& id : wake_queue)
         {
-            auto it = all_session_data.find(i);
-
-            ///will get spurious wakes
-            if(it == all_session_data.end())
+            if(id >= all_session_data.size())
                 continue;
 
-            it->second.tick(conn, next_wake_queue);
+            session_data<T>* pdata = all_session_data[id];
 
-            if(it->second.current_state == session_data<T>::terminated)
+            ///spurious wakeup
+            if(pdata == nullptr)
+                continue;
+
+            ///doesn't matter if we get a spurious wakeup
+            pdata->tick(conn, next_wake_queue);
+
+            if(pdata->current_state == session_data<T>::terminated)
             {
-                it = all_session_data.erase(it);
-            }
-            else
-            {
-                it++;
+                delete pdata;
+                all_session_data[id] = nullptr;
+
+                ///only now once memory has been freed, is the host informed that the client is disconnected
+                std::lock_guard guard(conn.disconnected_lock);
+                conn.disconnected_clients.push_back(id);
+
+                {
+                    std::lock_guard guard(conn.mut);
+
+                    for(int i=0; i < (int)conn.new_clients.size(); i++)
+                    {
+                        if(conn.new_clients[i] == id)
+                        {
+                            conn.new_clients.erase(conn.new_clients.begin() + i);
+                            i--;
+                            continue;
+                        }
+                    }
+                }
             }
         }
 
@@ -1533,6 +1518,11 @@ void connection::pop_disconnected_client()
         if(it != force_disconnection_queue.end())
             force_disconnection_queue.erase(it);
     }
+
+    {
+        std::lock_guard guard(free_id_queue_lock);
+        free_id_queue.push_back(id);
+    }
 }
 
 void connection::pop_new_client()
@@ -1543,11 +1533,4 @@ void connection::pop_new_client()
     {
         new_clients.erase(new_clients.begin());
     }
-}
-
-std::vector<uint64_t> connection::clients()
-{
-    std::scoped_lock guard(mut);
-
-    return connected_clients;
 }

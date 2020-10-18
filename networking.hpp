@@ -64,8 +64,6 @@ struct connection
     std::optional<uint64_t> has_disconnected_client();
     void pop_disconnected_client();
 
-    std::vector<uint64_t> clients();
-
     size_t last_read_from = -1;
 
     bool connection_pending();
@@ -138,7 +136,6 @@ struct connection
 
     std::atomic_int id = 0;
     std::deque<uint64_t> new_clients;
-    std::vector<uint64_t> connected_clients;
     std::vector<std::thread> thrd;
 
     std::mutex disconnected_lock;
@@ -146,6 +143,9 @@ struct connection
 
     std::mutex force_disconnection_lock;
     std::set<uint64_t> force_disconnection_queue;
+
+    std::mutex free_id_queue_lock;
+    std::vector<uint64_t> free_id_queue;
 
     std::atomic_int client_connected_to_server{0};
     std::atomic_bool should_terminate{false};
