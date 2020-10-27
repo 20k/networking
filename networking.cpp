@@ -1297,7 +1297,7 @@ void connection::connect(const std::string& address, uint16_t port, connection_t
     thread_is_client = true;
     is_client = true;
 
-    #ifdef SERVER_ONLY
+    #ifndef SERVER_ONLY
 
     #ifndef __EMSCRIPTEN__
     #ifdef SUPPORT_NO_SSL_CLIENT
