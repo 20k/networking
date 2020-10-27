@@ -39,10 +39,6 @@
 #include <SFML/System/Sleep.hpp>
 #include <fstream>
 
-#include <boost/fiber/all.hpp>
-#include "fiber_round_robin.hpp"
-#include "fiber_yield.hpp"
-
 using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
 namespace websocket = boost::beast::websocket;  // from <boost/beast/websocket.hpp>
 namespace ssl = boost::asio::ssl;               // from <boost/asio/ssl.hpp>
@@ -119,7 +115,6 @@ void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp:
             std::unique_lock guard(conn.mut);
 
             conn.new_clients.push_back(id);
-            conn.connected_clients.push_back(id);
         }
 
         boost::beast::multi_buffer rbuffer;
@@ -259,20 +254,6 @@ void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp:
         std::cerr << "Error: " << e.what() << std::endl;
     }
 
-    {
-        std::unique_lock guard(conn.mut);
-
-        for(int i=0; i < (int)conn.connected_clients.size(); i++)
-        {
-            if(conn.connected_clients[i] == id)
-            {
-                conn.connected_clients.erase(conn.connected_clients.begin() + i);
-                i--;
-                continue;
-            }
-        }
-    }
-
     if(wps)
     {
         delete wps;
@@ -360,10 +341,13 @@ struct session_data
     T* wps = nullptr;
     uint64_t id = -1;
     tcp::socket socket;
+    bool can_cancel = false;
+    bool has_cancelled = false;
     ssl::context* ctx = nullptr;
+    connection_settings sett;
 
-    boost::beast::multi_buffer rbuffer;
-    boost::beast::multi_buffer wbuffer;
+    boost::beast::flat_buffer rbuffer;
+    boost::beast::flat_buffer wbuffer;
 
     bool async_read = false;
     bool async_write = false;
@@ -389,7 +373,7 @@ struct session_data
 
     state current_state = start;
 
-    session_data(tcp::socket&& _sock) : socket(std::move(_sock)){}
+    session_data(tcp::socket&& _sock, connection_settings _sett) : socket(std::move(_sock)), sett(_sett){}
 
     void tick(connection& conn, std::vector<uint64_t>& wake_queue)
     {
@@ -399,37 +383,30 @@ struct session_data
         if(current_state == terminated)
             return;
 
-        if(current_state == err)
+        if(current_state == err && !async_read && !async_write)
         {
-            {
-                std::unique_lock guard(conn.mut);
-
-                for(int i=0; i < (int)conn.connected_clients.size(); i++)
-                {
-                    if(conn.connected_clients[i] == id)
-                    {
-                        conn.connected_clients.erase(conn.connected_clients.begin() + i);
-                        i--;
-                        continue;
-                    }
-                }
-            }
-
             if(wps)
             {
                 delete wps;
                 wps = nullptr;
             }
 
-            {
-                std::lock_guard guard(conn.disconnected_lock);
-                conn.disconnected_clients.push_back(id);
-            }
-
-            std::cout << "Got networking error " << last_ec.message() << std::endl;
+            printf("Got networking error %s with value %s:%i\n", last_ec.message().c_str(), last_ec.category().name(), last_ec.value());
 
             current_state = terminated;
-            wake_queue.push_back(id);
+            return;
+        }
+
+        ///the callbacks for both async_write and async_read both cause this to wake
+        if(current_state == err && (async_write || async_read))
+        {
+            if(can_cancel && !has_cancelled)
+            {
+                boost::system::error_code ec;
+                boost::beast::get_lowest_layer(*wps).socket().cancel(ec);
+                has_cancelled = true;
+            }
+
             return;
         }
 
@@ -444,6 +421,8 @@ struct session_data
             {
                 wps = new T{std::move(socket)};
                 wps->text(false);
+                wps->write_buffer_bytes(8192);
+                wps->read_message_max(sett.max_read_size);
 
                 wps->next_layer().socket().set_option(nagle);
                 current_state = has_handshake;
@@ -454,6 +433,8 @@ struct session_data
             {
                 wps = new T{std::move(socket), *ctx};
                 wps->text(false);
+                wps->write_buffer_bytes(8192);
+                wps->read_message_max(sett.max_read_size);
 
                 wps->next_layer().next_layer().socket().set_option(nagle);
 
@@ -472,6 +453,8 @@ struct session_data
                     wake_queue.push_back(id);
                 });
             }
+
+            can_cancel = true;
         }
 
         if(current_state == has_handshake)
@@ -487,11 +470,20 @@ struct session_data
                 res.insert(boost::beast::http::field::sec_websocket_protocol, "binary");
             }));
 
-            boost::beast::websocket::permessage_deflate opt;
-            opt.server_enable = true;
-            opt.client_enable = true;
+            if(sett.enable_compression)
+            {
+                boost::beast::websocket::permessage_deflate opt;
+                ///enabling deflate causes server memory usage to climb extremely high
+                ///todo tomorrow: check if this is a real memory leak
+                opt.server_enable = true;
+                opt.client_enable = true;
+                opt.server_max_window_bits = sett.max_window_bits;
+                opt.memLevel = sett.memory_level;
+                opt.compLevel = sett.compression_level;
 
-            ws.set_option(opt);
+                ws.set_option(opt);
+            }
+
             ws.async_accept([&](auto ec)
             {
                 if(ec)
@@ -527,7 +519,6 @@ struct session_data
                 std::unique_lock guard(conn.mut);
 
                 conn.new_clients.push_back(id);
-                conn.connected_clients.push_back(id);
             }
             ///no need to wake
         }
@@ -559,12 +550,13 @@ struct session_data
                         return;
                     }
 
-                    async_write = true;
 
                     wbuffer.consume(wbuffer.size());
 
                     size_t n = buffer_copy(wbuffer.prepare(next.data.size()), boost::asio::buffer(next.data));
                     wbuffer.commit(n);
+
+                    async_write = true;
 
                     ws.async_write(wbuffer.data(), [&](boost::system::error_code ec, std::size_t)
                     {
@@ -573,6 +565,7 @@ struct session_data
                             last_ec = ec;
                             current_state = err;
                             wake_queue.push_back(id);
+                            async_write = false;
                             return;
                         }
 
@@ -594,6 +587,7 @@ struct session_data
                         last_ec = ec;
                         current_state = err;
                         wake_queue.push_back(id);
+                        async_read = false;
                         return;
                     }
 
@@ -629,7 +623,7 @@ struct session_data
 };
 
 template<typename T>
-void server_thread(connection& conn, std::string saddress, uint16_t port)
+void server_thread(connection& conn, std::string saddress, uint16_t port, connection_settings sett)
 {
     auto const address = boost::asio::ip::make_address(saddress);
 
@@ -660,20 +654,24 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
     ctx.use_tmp_dh(
         boost::asio::buffer(dh.data(), dh.size()));
 
-    //tcp::socket* next_socket = nullptr;
-
     tcp::socket next_socket{acceptor_context};
     bool async_in_flight = false;
 
-    std::map<uint64_t, session_data<T>> all_session_data;
+    ///owning, individual elements are recycled
+    std::vector<session_data<T>*> all_session_data;
+
     std::vector<uint64_t> wake_queue;
+    std::vector<uint64_t> next_wake_queue;
+
+    uint64_t tick = 0;
 
     while(1)
     {
+        tick++;
+
         if(!async_in_flight)
         {
             async_in_flight = true;
-            next_socket = tcp::socket{acceptor_context};
 
             acceptor.async_accept(next_socket, [&](auto ec)
             {
@@ -685,14 +683,29 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
                 }
                 else
                 {
-                    uint64_t id = conn.id++;
+                    uint64_t id = -1;
 
-                    std::pair vals = all_session_data.emplace(id, std::move(next_socket));
+                    {
+                        std::lock_guard guard(conn.free_id_queue_lock);
 
-                    session_data<T>& dat = vals.first->second;
+                        if(conn.free_id_queue.size() == 0)
+                        {
+                            id = conn.id++;
+                            all_session_data.push_back(nullptr);
+                        }
+                        else
+                        {
+                            id = conn.free_id_queue.back();
+                            conn.free_id_queue.pop_back();
+                        }
+                    }
 
-                    dat.id = id;
-                    dat.ctx = &ctx;
+                    session_data<T>* dat = new session_data<T>(std::move(next_socket), sett);
+
+                    all_session_data[id] = dat;
+
+                    dat->id = id;
+                    dat->ctx = &ctx;
                     next_socket = tcp::socket{acceptor_context};
 
                     wake_queue.push_back(id);
@@ -701,834 +714,89 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
             });
         }
 
+        acceptor_context.poll();
+
+        if(acceptor_context.stopped())
+            acceptor_context.restart();
+
         {
             std::lock_guard guard(conn.wake_lock);
 
             wake_queue.insert(wake_queue.end(), conn.wake_queue.begin(), conn.wake_queue.end());
             conn.wake_queue.clear();
+
+            wake_queue.insert(wake_queue.end(), next_wake_queue.begin(), next_wake_queue.end());
+            next_wake_queue.clear();
         }
 
-        acceptor_context.poll();
-        acceptor_context.restart();
-
-        bool any_awake = wake_queue.size() > 0;
-
-        for(auto& i : wake_queue)
+        if((tick % 100) == 0)
         {
-            auto it = all_session_data.find(i);
+            std::lock_guard guard(conn.force_disconnection_lock);
 
-            ///will get spurious wakes
-            if(it == all_session_data.end())
+            for(auto i : conn.force_disconnection_queue)
+            {
+                if(i >= all_session_data.size())
+                    continue;
+
+                session_data<T>* pdata = all_session_data[i];
+
+                ///if we're not terminated, and we're not already in an error, transition
+                if(pdata->current_state != session_data<T>::err && pdata->current_state != session_data<T>::terminated)
+                {
+                    pdata->current_state = session_data<T>::err;
+                    wake_queue.push_back(i);
+                }
+            }
+
+            conn.force_disconnection_queue.clear();
+        }
+
+        for(auto& id : wake_queue)
+        {
+            if(id >= all_session_data.size())
                 continue;
 
-            it->second.tick(conn, wake_queue);
+            session_data<T>* pdata = all_session_data[id];
 
-            if(it->second.current_state == session_data<T>::terminated)
+            ///spurious wakeup
+            if(pdata == nullptr)
+                continue;
+
+            ///doesn't matter if we get a spurious wakeup
+            pdata->tick(conn, next_wake_queue);
+
+            if(pdata->current_state == session_data<T>::terminated)
             {
-                it = all_session_data.erase(it);
-            }
-            else
-            {
-                it++;
+                delete pdata;
+                all_session_data[id] = nullptr;
+
+                ///only now once memory has been freed, is the host informed that the client is disconnected
+                std::lock_guard guard(conn.disconnected_lock);
+                conn.disconnected_clients.push_back(id);
+
+                {
+                    std::lock_guard guard(conn.mut);
+
+                    for(int i=0; i < (int)conn.new_clients.size(); i++)
+                    {
+                        if(conn.new_clients[i] == id)
+                        {
+                            conn.new_clients.erase(conn.new_clients.begin() + i);
+                            i--;
+                            continue;
+                        }
+                    }
+                }
             }
         }
 
-        wake_queue.clear();
-
-        if(!any_awake)
+        if(wake_queue.size() == 0 && next_wake_queue.size() == 0)
             sf::sleep(sf::milliseconds(1));
+
+        wake_queue.clear();
     }
 }
 #endif // ASYNC_THREAD
-
-//#define ONE_FIBER_THREAD
-#ifdef ONE_FIBER_THREAD
-template<typename T>
-struct socket_data
-{
-    std::shared_ptr<T> wps;
-    //std::shared_ptr<ssl::context> ctx;
-};
-
-struct async_fiber_state
-{
-    bool suspended = false;
-    bool has_result = false;
-    boost::fibers::detail::spinlock lock;
-    std::unique_lock<boost::fibers::detail::spinlock> bmut;
-    boost::fibers::context* ptr = nullptr;
-    //boost::system::error_code _ec;
-    std::atomic_bool failed = false;
-
-    async_fiber_state() : bmut(lock, std::defer_lock)
-    {
-
-    }
-};
-
-void async_fiber_callback(async_fiber_state& state, const boost::system::error_code& _ec)
-{
-    state.bmut.lock();
-    state.has_result = true;
-    //state._ec = _ec;
-    state.failed = (bool)_ec;
-
-    if(state.suspended)
-    {
-        boost::fibers::context::active()->schedule(state.ptr);
-    }
-
-    state.bmut.unlock();
-}
-
-void async_try_suspend(async_fiber_state& state)
-{
-    state.bmut.lock();
-    if(!state.has_result)
-    {
-        state.suspended = true;
-        state.ptr = boost::fibers::context::active();
-        boost::fibers::context::active()->suspend(state.bmut);
-    }
-    else
-    {
-        state.bmut.unlock();
-    }
-}
-
-template<typename T>
-socket_data<T> make_socket_data(tcp::socket& socket, boost::asio::ssl::context& ssl_context)
-{
-    socket_data<T> ret;
-    std::shared_ptr<T> wps;
-
-    boost::asio::ip::tcp::no_delay nagle(true);
-
-    if constexpr(std::is_same_v<T, websocket::stream<boost::beast::tcp_stream>>)
-    {
-        wps = std::shared_ptr<T>(new T{std::move(socket)});
-        wps->text(false);
-        wps->set_option(websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
-
-        wps->next_layer().socket().set_option(nagle);
-    }
-
-    if constexpr(std::is_same_v<T, websocket::stream<ssl::stream<boost::beast::tcp_stream>>>)
-    {
-        wps = std::shared_ptr<T>(new T{std::move(socket), ssl_context});
-        wps->text(false);
-        wps->set_option(websocket::stream_base::timeout::suggested(boost::beast::role_type::server));
-
-        wps->next_layer().next_layer().socket().set_option(nagle);
-
-        async_fiber_state st;
-
-        wps->next_layer().async_handshake(ssl::stream_base::server,
-        [&](auto in)
-        {
-            async_fiber_callback(st, in);
-        });
-
-        async_try_suspend(st);
-
-        //wps->next_layer().async_handshake(ssl::stream_base::server, boost::fibers::asio::get_yield(ec));
-
-        if(st.failed)
-            throw std::runtime_error("Bad 1");
-
-        printf("Post handshake\n");
-    }
-
-    assert(wps != nullptr);
-
-    T& ws = *wps;
-
-    ws.set_option(websocket::stream_base::decorator(
-    [](websocket::response_type& res)
-    {
-        res.insert(boost::beast::http::field::sec_websocket_protocol, "binary");
-    }));
-
-    boost::beast::websocket::permessage_deflate opt;
-    opt.server_enable = true;
-    opt.client_enable = true;
-
-    ws.set_option(opt);
-
-    //ws.accept();
-
-    async_fiber_state st2;
-    ws.async_accept([&](auto in)
-    {
-        async_fiber_callback(st2, in);
-    });
-
-    async_try_suspend(st2);
-
-    if(st2.failed)
-        throw std::runtime_error("Bad 2");
-
-    printf("Post accept2");
-
-    ret.wps = wps;
-
-    return ret;
-}
-
-#if 1
-template<typename T>
-void write_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
-{
-    boost::beast::multi_buffer buffer;
-
-    std::vector<write_data>* queue_ptr = nullptr;
-    std::mutex* mutex_ptr = nullptr;
-
-    {
-        std::unique_lock guard(conn.mut);
-
-        queue_ptr = &conn.directed_write_queue[id];
-        mutex_ptr = &conn.directed_write_lock[id];
-    }
-
-    std::vector<write_data>& queue = *queue_ptr;
-    std::mutex& mutex = *mutex_ptr;
-
-    uint64_t empty_spins = 0;
-
-    try
-    {
-        while(term == 0)
-        {
-            std::optional<write_data> next_data = std::nullopt;
-
-            {
-                std::lock_guard guard(mutex);
-
-                if(queue.size() > 0)
-                {
-                    next_data = *queue.begin();
-                    queue.erase(queue.begin());
-                }
-            }
-
-            if(next_data.has_value())
-            {
-                buffer.consume(buffer.size());
-
-                size_t n = buffer_copy(buffer.prepare(next_data.value().data.size()), boost::asio::buffer(next_data.value().data));
-                buffer.commit(n);
-
-                async_fiber_state st;
-                sock.wps->async_write(buffer.data(), [&](auto in, auto _)
-                {
-                    async_fiber_callback(st, in);
-                });
-
-                async_try_suspend(st);
-
-                /*if(st.failed && st._ec == boost::asio::error::eof)
-                    break;
-                else */if(st.failed)
-                {
-                    printf("Write failed\n");
-                    break;
-                }
-
-                empty_spins = 0;
-            }
-            else
-            {
-                empty_spins++;
-            }
-
-            ///2 attempts at 1ms sleep
-            if(empty_spins <= 1)
-                boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
-            ///16 attempts at 4ms sleep
-            else if(empty_spins <= 16)
-                boost::this_fiber::sleep_for(std::chrono::milliseconds(4));
-            ///else sleep for 32ms
-            else
-                boost::this_fiber::sleep_for(std::chrono::milliseconds(32));
-        }
-    }
-    catch(...)
-    {
-        printf("Error in write fiber\n");
-    }
-
-    term++;
-}
-
-template<typename T>
-void read_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
-{
-    boost::beast::multi_buffer buffer;
-
-    std::vector<write_data>* queue_ptr = nullptr;
-    std::mutex* mutex_ptr = nullptr;
-
-    {
-        std::unique_lock guard(conn.mut);
-
-        queue_ptr = &conn.fine_read_queue[id];
-        mutex_ptr = &conn.fine_read_lock[id];
-    }
-
-    std::vector<write_data>& queue = *queue_ptr;
-    std::mutex& mutex = *mutex_ptr;
-
-    try
-    {
-        while(term == 0)
-        {
-            async_fiber_state st;
-            sock.wps->async_read(buffer, [&](auto in, auto _)
-            {
-                async_fiber_callback(st, in);
-            });
-
-            async_try_suspend(st);
-
-            /*if(st.failed && st._ec == boost::asio::error::eof)
-                break;
-            else */if(st.failed)
-            {
-                printf("Read failed\n");
-                break;
-            }
-
-            std::string next = boost::beast::buffers_to_string(buffer.data());
-
-            write_data ndata;
-            ndata.data = std::move(next);
-            ndata.id = id;
-
-            {
-                std::lock_guard guard(mutex);
-
-                queue.push_back(ndata);
-
-                buffer = decltype(buffer)();
-            }
-
-            ndata = write_data();
-
-            boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
-        }
-    }
-    catch(...)
-    {
-        printf("Err in read fiber\n");
-    }
-
-    term++;
-}
-#else
-
-template<typename T>
-void read_write_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
-{
-    try
-    {
-    boost::beast::multi_buffer write_buffer;
-
-    std::vector<write_data>* write_queue_ptr = nullptr;
-    std::mutex* write_mutex_ptr = nullptr;
-
-    {
-        std::unique_lock guard(conn.mut);
-
-        write_queue_ptr = &conn.directed_write_queue[id];
-        write_mutex_ptr = &conn.directed_write_lock[id];
-    }
-
-    std::vector<write_data>& write_queue = *write_queue_ptr;
-    std::mutex& write_mutex = *write_mutex_ptr;
-
-    uint64_t empty_spins = 0;
-
-    boost::beast::multi_buffer read_buffer;
-
-    std::vector<write_data>* read_queue_ptr = nullptr;
-    std::mutex* read_mutex_ptr = nullptr;
-
-    {
-        std::unique_lock guard(conn.mut);
-
-        read_queue_ptr = &conn.fine_read_queue[id];
-        read_mutex_ptr = &conn.fine_read_lock[id];
-    }
-
-    std::vector<write_data>& read_queue = *read_queue_ptr;
-    std::mutex& read_mutex = *read_mutex_ptr;
-
-    bool doing_read = false;
-    bool doing_write = false;
-
-    std::atomic_bool has_error = false;
-    std::atomic_bool is_suspended = false;
-    std::atomic_bool has_write_result = false;
-    std::atomic_bool has_read_result = false;
-
-    boost::fibers::detail::spinlock lock;
-    std::unique_lock<boost::fibers::detail::spinlock> local_mut(lock, std::defer_lock);
-    boost::fibers::context* fiber_ctx = boost::fibers::context::active();
-
-    while(term == 0)
-    {
-        if(!doing_write)
-        {
-            std::optional<write_data> next_data = std::nullopt;
-
-            {
-                std::lock_guard guard(write_mutex);
-
-                if(write_queue.size() > 0)
-                {
-                    next_data = *write_queue.begin();
-                    write_queue.erase(write_queue.begin());
-                }
-            }
-
-            if(next_data.has_value())
-            {
-                doing_write = true;
-
-                write_buffer.consume(write_buffer.size());
-
-                size_t n = buffer_copy(write_buffer.prepare(next_data.value().data.size()), boost::asio::buffer(next_data.value().data));
-                write_buffer.commit(n);
-
-                sock.wps->async_write(write_buffer.data(), [&](auto in, auto _)
-                {
-                    local_mut.lock();
-                    has_write_result = true;
-                    has_error = has_error || (bool)in;
-
-                    if(is_suspended)
-                    {
-                        is_suspended = false;
-                        boost::fibers::context::active()->schedule(fiber_ctx);
-                    }
-
-                    local_mut.unlock();
-                });
-            }
-        }
-
-        if(has_write_result)
-        {
-            doing_write = false;
-            has_write_result = false;
-        }
-
-        if(!doing_read)
-        {
-            doing_read = true;
-
-            sock.wps->async_read(read_buffer, [&](auto in, auto _)
-            {
-                local_mut.lock();
-                has_read_result = true;
-                has_error = has_error || (bool)in;
-
-                if(is_suspended)
-                {
-                    is_suspended = false;
-                    boost::fibers::context::active()->schedule(fiber_ctx);
-                }
-
-                local_mut.unlock();
-            });
-        }
-
-        if(has_read_result)
-        {
-            std::string next = boost::beast::buffers_to_string(read_buffer.data());
-
-            write_data ndata;
-            ndata.data = std::move(next);
-            ndata.id = id;
-
-            {
-                std::lock_guard guard(read_mutex);
-
-                read_queue.push_back(ndata);
-
-                read_buffer = decltype(read_buffer)();
-            }
-
-            ndata = write_data();
-            has_read_result = false;
-            doing_read = false;
-        }
-
-        {
-            local_mut.lock();
-
-            if(!has_write_result && !has_read_result && doing_write && doing_read)
-            {
-                is_suspended = true;
-                fiber_ctx->suspend(local_mut);
-            }
-            else
-            {
-                local_mut.unlock();
-            }
-        }
-
-        if(has_error)
-            throw std::runtime_error("Err in read/write fiber");
-
-        boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
-    }
-    }
-    catch(...)
-    {
-        printf("Error in read write fiber\n");
-    }
-
-    term++;
-}
-#endif // 1
-
-template<typename T>
-void disconnect_fiber(connection& conn, socket_data<T>& sock, int id, int& term)
-{
-    while(term == 0)
-    {
-        {
-            std::scoped_lock guard(conn.force_disconnection_lock);
-
-            auto it = conn.force_disconnection_queue.find(id);
-
-            if(it != conn.force_disconnection_queue.end())
-            {
-                conn.force_disconnection_queue.erase(it);
-                break;
-            }
-        }
-
-        boost::this_fiber::sleep_for(std::chrono::milliseconds(2000));
-    }
-
-    try
-    {
-        boost::system::error_code ec;
-        //sock.wps->async_close(boost::beast::websocket::close_code::none, boost::fibers::asio::get_yield(ec));
-
-        boost::beast::get_lowest_layer(*sock.wps).cancel(ec);
-    }
-    catch(...){}
-
-    term++;
-}
-
-void io_poll(connection& conn, boost::asio::io_context* nctx, int& term)
-{
-    while(term == 0)
-    {
-        nctx->poll();
-        nctx->restart();
-
-        boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
-    }
-
-    term++;
-}
-
-template<typename T>
-void session(connection& conn, tcp::socket& in, int& session_count, boost::asio::ssl::context& ssl_context, boost::asio::io_context* nctx)
-{
-    int should_term = 0;
-
-    boost::fibers::fiber f3(io_poll, std::ref(conn), nctx, std::ref(should_term));
-
-    socket_data<T> sock;
-
-    try
-    {
-        sock = make_socket_data<T>(std::ref(in), std::ref(ssl_context));
-    }
-    catch(std::exception const& ex)
-    {
-        std::cout << "Failed to create socket in session: " << ex.what() << std::endl;
-        return;
-    }
-    catch(...)
-    {
-        printf("Failed to create socket\n");
-        return;
-    }
-
-    int64_t id = conn.id++;
-
-    {
-        std::scoped_lock guard(conn.mut);
-
-        conn.new_clients.push_back(id);
-        conn.connected_clients.push_back(id);
-    }
-
-    #if 1
-    boost::fibers::fiber f1(read_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
-    boost::fibers::fiber f2(write_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
-    //boost::fibers::fiber f3(disconnect_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
-
-    /*while(should_term != 3)
-    {
-        boost::this_fiber::sleep_for(std::chrono::milliseconds(32));
-    }*/
-
-    f1.join();
-    f2.join();
-    f3.join();
-    #endif // 0
-    //f3.join();
-
-    //boost::fibers::fiber rwfiber(read_write_fiber<T>, std::ref(conn), std::ref(sock), id, std::ref(should_term));
-    //rwfiber.join();
-
-    //read_write_fiber<T>(conn, sock, id, should_term);
-
-    {
-        std::scoped_lock guard(conn.mut);
-
-        for(int i=0; i < (int)conn.connected_clients.size(); i++)
-        {
-            if(conn.connected_clients[i] == (uint64_t)id)
-            {
-                conn.connected_clients.erase(conn.connected_clients.begin() + i);
-                i--;
-                continue;
-            }
-        }
-    }
-
-    {
-        std::lock_guard guard(conn.disconnected_lock);
-        conn.disconnected_clients.push_back(id);
-    }
-
-    session_count--;
-}
-
-template<typename T>
-void server(connection& conn, boost::asio::io_context& io_ctx, tcp::acceptor& a) {
-    try {
-        static std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
-        static std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
-        static std::string key = read_file_bin("./deps/secret/cert/key.pem");
-
-        boost::asio::ssl::context ssl_context{ssl::context::tls_server};
-
-        ssl_context.set_options(boost::asio::ssl::context::default_workarounds |
-                        boost::asio::ssl::context::no_sslv2 |
-                        boost::asio::ssl::context::single_dh_use |
-                        boost::asio::ssl::context::no_sslv3);
-
-        ssl_context.use_certificate_chain(
-            boost::asio::buffer(cert.data(), cert.size()));
-
-        ssl_context.use_private_key(
-            boost::asio::buffer(key.data(), key.size()),
-            boost::asio::ssl::context::file_format::pem);
-
-        ssl_context.use_tmp_dh(
-            boost::asio::buffer(dh.data(), dh.size()));
-
-        int max_sessions = 256;
-        int session_count = 0;
-
-
-
-        for (;;) {
-
-            /*while(session_count >= max_sessions)
-            {
-                boost::this_fiber::sleep_for(std::chrono::seconds(1));
-            }*/
-
-            //std::shared_ptr<tcp::socket> socket(new tcp::socket(*io_ctx));
-
-            boost::asio::io_context* nctx = new boost::asio::io_context{1};
-
-            tcp::socket socket(*nctx);
-
-            printf("Pre accept\n");
-
-            async_fiber_state st;
-            a.async_accept(socket, [&](auto in)
-            {
-                async_fiber_callback(st, in);
-            });
-            async_try_suspend(st);
-
-            //a.async_accept(*socket, boost::fibers::asio::get_yield(ec));
-            printf("Post accept\n");
-
-            session_count++;
-
-            if(st.failed) {
-                //throw boost::system::system_error(ec); //some other error
-                printf("Error in server async_accept\n");
-            } else {
-                boost::fibers::fiber(session<T>, std::ref(conn), std::ref(socket), std::ref(session_count), std::ref(ssl_context), nctx).detach();
-            }
-
-            boost::this_fiber::sleep_for(std::chrono::milliseconds(16));
-        }
-    } catch (std::exception const& ex) {
-        std::cout << "Server caught exception " << ex.what() << std::endl;
-    }
-    catch(...)
-    {
-        printf("Caught unknown exception in server\n");
-    }
-
-    printf("Terminated server\n");
-
-    io_ctx.stop();
-}
-
-void sleeper()
-{
-    while(1)
-    {
-        sf::sleep(sf::milliseconds(1));
-        boost::this_fiber::sleep_for(std::chrono::milliseconds(512));
-    }
-}
-
-class round_robin : public boost::fibers::algo::algorithm {
-private:
-    boost::asio::io_context*      io_ctx_ = nullptr;
-    boost::fibers::scheduler::ready_queue_type      rqueue_{};
-    std::size_t                                     counter_{ 0 };
-
-public:
-    struct service : public boost::asio::io_context::service {
-        static inline boost::asio::io_context::id                  id;
-
-        std::unique_ptr< boost::asio::io_context::work >    work_;
-
-        service( boost::asio::io_context & io_ctx) :
-            boost::asio::io_context::service( io_ctx),
-            work_{ new boost::asio::io_context::work( io_ctx) } {
-        }
-
-        virtual ~service() {}
-
-        service( service const&) = delete;
-        service & operator=( service const&) = delete;
-
-        void shutdown_service() override final {
-            work_.reset();
-        }
-    };
-
-    round_robin( boost::asio::io_context& io_ctx) :
-        io_ctx_( &io_ctx){
-        // We use add_service() very deliberately. This will throw
-        // service_already_exists if you pass the same io_context instance to
-        // more than one round_robin instance.
-        /*boost::asio::add_service( * io_ctx_, new service( * io_ctx_) );
-        boost::asio::post( * io_ctx_, [this]() mutable {
-                //while ( ! io_ctx_->stopped() ) {
-                while(1) {
-                    if ( has_ready_fibers() ) {
-                        // run all pending handlers in round_robin
-                        while ( io_ctx_->poll() )
-                        {
-
-                        }
-                        // finished work, yield
-                        //
-                        boost::this_fiber::yield();
-                    } else {
-                        // run one handler inside io_context
-                        // if no handler available, block this thread
-                        if ( ! io_ctx_->run_one() ) {
-                            break;
-                        }
-                    }
-
-                    boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
-                    //sf::sleep(sf::milliseconds(1));
-               }
-
-               printf("Reached the end of io post\n");
-            });*/
-    }
-
-    void awakened(boost::fibers::context * ctx) noexcept {
-        BOOST_ASSERT( nullptr != ctx);
-        BOOST_ASSERT( ! ctx->ready_is_linked() );
-        ctx->ready_link( rqueue_); /*< fiber, enqueue on ready queue >*/
-        ++counter_;
-    }
-
-    boost::fibers::context * pick_next() noexcept {
-        boost::fibers::context * ctx(nullptr);
-        if ( ! rqueue_.empty() ) {
-            ctx = & rqueue_.front();
-            rqueue_.pop_front();
-            BOOST_ASSERT( nullptr != ctx);
-            BOOST_ASSERT( boost::fibers::context::active() != ctx);
-            --counter_;
-        }
-        return ctx;
-    }
-
-    bool has_ready_fibers() const noexcept {
-        return 0 < counter_;
-    }
-
-    void suspend_until( std::chrono::steady_clock::time_point const& abs_time) noexcept {
-        sf::sleep(sf::milliseconds(1));
-    }
-
-    void notify() noexcept {
-    }
-};
-
-template<typename T>
-void server_thread(connection& conn, std::string saddress, uint16_t port)
-{
-    //auto const address = boost::asio::ip::make_address(saddress);
-
-    ///best guess: its something related to the threading here
-    ///weirdly, setting this to {1} breaks everything
-    boost::asio::io_context io_ctx{1};
-    //boost::asio::io_context io_ctx;
-    //std::shared_ptr< boost::asio::io_context > io_ctx = std::make_shared< boost::asio::io_context >();
-    //boost::fibers::use_scheduling_algorithm< boost::fibers::asio::round_robin >(io_ctx);
-    boost::fibers::use_scheduling_algorithm< round_robin >(io_ctx);
-    //boost::fibers::use_scheduling_algorithm< round_robin >(io_ctx);
-    //boost::fibers::use_scheduling_algorithm< network_round_robin >();
-
-    //tcp::acceptor acceptor{*io_ctx, {address, port}};
-    tcp::acceptor acceptor(io_ctx, tcp::endpoint(tcp::v4(), port));
-    acceptor.set_option(boost::asio::socket_base::reuse_address(true));
-
-    acceptor.listen(boost::asio::socket_base::max_listen_connections);
-
-    boost::fibers::fiber(sleeper).detach();
-    boost::fibers::fiber(server<T>, std::ref(conn), std::ref(io_ctx), std::ref(acceptor)).detach();
-
-    while(1)
-    {
-        io_ctx.poll();
-        if(io_ctx.stopped())
-            io_ctx.restart();
-        boost::this_fiber::sleep_for(std::chrono::milliseconds(1));
-    }
-
-    printf("Run should not have exited\n");
-}
-#endif // 0
 
 template<typename T>
 void client_thread(connection& conn, std::string address, uint16_t port, std::string sni_hostname, uint64_t client_sleep_time_ms)
@@ -2007,18 +1275,20 @@ bool connection::connection_pending()
 }
 
 #ifndef __EMSCRIPTEN__
-void connection::host(const std::string& address, uint16_t port, connection_type::type type)
+void connection::host(const std::string& address, uint16_t port, connection_type::type type, connection_settings _sett)
 {
+    sett = _sett;
+
     thread_is_server = true;
     is_client = false;
 
-    #ifdef SUPPORT_NO_SSL
+    #ifdef SUPPORT_NO_SSL_SERVER
     if(type == connection_type::PLAIN)
-        thrd.emplace_back(server_thread<websocket::stream<boost::beast::tcp_stream>>, std::ref(*this), address, port);
-    #endif // SUPPORT_NO_SSL
+        thrd.emplace_back(server_thread<websocket::stream<boost::beast::tcp_stream>>, std::ref(*this), address, port, sett);
+    #endif // SUPPORT_NO_SSL_SERVER
 
     if(type == connection_type::SSL)
-        thrd.emplace_back(server_thread<websocket::stream<ssl::stream<boost::beast::tcp_stream>>>, std::ref(*this), address, port);
+        thrd.emplace_back(server_thread<websocket::stream<ssl::stream<boost::beast::tcp_stream>>>, std::ref(*this), address, port, sett);
 }
 #endif // __EMSCRIPTEN__
 
@@ -2027,11 +1297,13 @@ void connection::connect(const std::string& address, uint16_t port, connection_t
     thread_is_client = true;
     is_client = true;
 
+    #ifdef SERVER_ONLY
+
     #ifndef __EMSCRIPTEN__
-    #ifdef SUPPORT_NO_SSL
+    #ifdef SUPPORT_NO_SSL_CLIENT
     if(type == connection_type::PLAIN)
         thrd.emplace_back(client_thread<websocket::stream<tcp::socket>>, std::ref(*this), address, port, sni_hostname, client_sleep_interval_ms);
-    #endif // SUPPORT_NO_SSL
+    #endif // SUPPORT_NO_SSL_CLIENT
 
     if(type == connection_type::SSL)
         thrd.emplace_back(client_thread<websocket::stream<ssl::stream<tcp::socket>>>, std::ref(*this), address, port, sni_hostname, client_sleep_interval_ms);
@@ -2042,6 +1314,7 @@ void connection::connect(const std::string& address, uint16_t port, connection_t
 
     thrd.emplace_back(client_thread_tcp, std::ref(*this), address, port);
     #endif
+    #endif // SERVER_ONLY
 }
 
 void connection::write(const std::string& data)
@@ -2138,7 +1411,7 @@ void connection::pop_read(uint64_t to_id)
     read_queue.erase(read_queue.begin());*/
 }
 
-void connection::force_disconnect(uint64_t id)
+void connection::force_disconnect(uint64_t id) noexcept
 {
     std::scoped_lock guard(force_disconnection_lock);
 
@@ -2152,6 +1425,9 @@ void connection::set_client_sleep_interval(uint64_t time_ms)
 
 void connection::write_to(const write_data& data)
 {
+    if(data.data.size() > sett.max_write_size)
+        throw std::runtime_error("Exceeded max write size to client " + std::to_string(data.id) + " with size " + std::to_string(data.data.size()) + ". Max size is " + std::to_string(sett.max_write_size));
+
     {
         std::vector<write_data>* write_dat = nullptr;
         std::mutex* write_mutex = nullptr;
@@ -2242,6 +1518,11 @@ void connection::pop_disconnected_client()
         if(it != force_disconnection_queue.end())
             force_disconnection_queue.erase(it);
     }
+
+    {
+        std::lock_guard guard(free_id_queue_lock);
+        free_id_queue.push_back(id);
+    }
 }
 
 void connection::pop_new_client()
@@ -2252,11 +1533,4 @@ void connection::pop_new_client()
     {
         new_clients.erase(new_clients.begin());
     }
-}
-
-std::vector<uint64_t> connection::clients()
-{
-    std::scoped_lock guard(mut);
-
-    return connected_clients;
 }

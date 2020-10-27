@@ -11,6 +11,7 @@
 #include <atomic>
 #include <map>
 #include <set>
+#include <deque>
 
 #ifndef NO_SERIALISATION
 #include "serialisable.hpp"
@@ -39,9 +40,22 @@ namespace connection_type
     };
 }
 
+struct connection_settings
+{
+    int compression_level = 8;
+    int memory_level = 4;
+    int max_window_bits = 15; ///affects socket memory usage, must be >= 9
+    bool enable_compression = true;
+
+    ///uncompressed, handled through boost::beast
+    uint64_t max_read_size = 16 * 1024 * 1024;
+    ///uncompressed unfortunately, handled through beast
+    uint64_t max_write_size = 16 * 1024 * 1024;
+};
+
 struct connection
 {
-    void host(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN);
+    void host(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN, connection_settings sett = connection_settings());
     void connect(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN, std::string sni_hostname = "");
 
     std::optional<uint64_t> has_new_client();
@@ -49,8 +63,6 @@ struct connection
 
     std::optional<uint64_t> has_disconnected_client();
     void pop_disconnected_client();
-
-    std::vector<uint64_t> clients();
 
     size_t last_read_from = -1;
 
@@ -61,7 +73,7 @@ struct connection
     //std::string read();
     void pop_read(uint64_t id);
 
-    void force_disconnect(uint64_t id);
+    void force_disconnect(uint64_t id) noexcept;
 
     void set_client_sleep_interval(uint64_t time_ms);
 
@@ -123,15 +135,17 @@ struct connection
     std::vector<uint64_t> wake_queue;
 
     std::atomic_int id = 0;
-    std::vector<uint64_t> new_clients;
-    std::vector<uint64_t> connected_clients;
+    std::deque<uint64_t> new_clients;
     std::vector<std::thread> thrd;
 
     std::mutex disconnected_lock;
-    std::vector<uint64_t> disconnected_clients;
+    std::deque<uint64_t> disconnected_clients;
 
     std::mutex force_disconnection_lock;
     std::set<uint64_t> force_disconnection_queue;
+
+    std::mutex free_id_queue_lock;
+    std::vector<uint64_t> free_id_queue;
 
     std::atomic_int client_connected_to_server{0};
     std::atomic_bool should_terminate{false};
@@ -143,6 +157,7 @@ private:
     bool is_client = true;
     bool is_connected = false;
     int client_sleep_interval_ms = 1;
+    connection_settings sett;
 };
 
 namespace network_mode
