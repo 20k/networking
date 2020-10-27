@@ -95,14 +95,14 @@ struct connection
 
     #ifndef NO_SERIALISATION
     template<typename T>
-    void writes_to(T& data, uint64_t id)
+    void writes_to(T& data, uint64_t to_id)
     {
         nlohmann::json ret = serialise(data);
 
         std::vector<uint8_t> cb = nlohmann::json::to_cbor(ret);
 
         write_data dat;
-        dat.id = id;
+        dat.id = to_id;
         dat.data = std::string(cb.begin(), cb.end());
         //dat.data = ret.dump();
 

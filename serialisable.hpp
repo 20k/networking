@@ -739,7 +739,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
                 nlohmann::json& mname = data["a"];
                 int num = data["c"];
 
-                T* fptr = nullptr;
+                T* nptr = nullptr;
 
                 if(num < 0 || num >= 100000)
                     throw std::runtime_error("Num out of range");
@@ -755,7 +755,7 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, std::vector<T>& 
 
                     if(other == nullptr || other->size() != (size_t)num)
                     {
-                        do_serialise(ctx, i.value(), in[idx], fptr);
+                        do_serialise(ctx, i.value(), in[idx], nptr);
                     }
                     else
                     {

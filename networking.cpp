@@ -2113,7 +2113,7 @@ write_data connection::read_from()
     throw std::runtime_error("Bad queue");
 }
 
-void connection::pop_read(uint64_t id)
+void connection::pop_read(uint64_t to_id)
 {
     std::vector<write_data>* read_ptr = nullptr;
     std::mutex* mut_ptr = nullptr;
@@ -2121,8 +2121,8 @@ void connection::pop_read(uint64_t id)
     {
         std::unique_lock guard(mut);
 
-        read_ptr = &fine_read_queue[id];
-        mut_ptr = &fine_read_lock[id];
+        read_ptr = &fine_read_queue[to_id];
+        mut_ptr = &fine_read_lock[to_id];
     }
 
     std::lock_guard guard(*mut_ptr);
