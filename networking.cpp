@@ -622,52 +622,45 @@ struct session_data
     }
 };
 
-template<typename T>
-void server_thread(connection& conn, std::string saddress, uint16_t port, connection_settings sett)
+struct acceptor_data
 {
-    auto const address = boost::asio::ip::make_address(saddress);
-
-    std::atomic_bool accepted = true;
-    boost::asio::io_context acceptor_context{1};
-
-    tcp::acceptor acceptor{acceptor_context, {address, port}};
-    acceptor.set_option(boost::asio::socket_base::reuse_address(true));
-
     ssl::context ctx{ssl::context::tls_server};
+    boost::asio::io_context acceptor_context{1};
+    tcp::acceptor acceptor;
+    tcp::socket next_socket;
 
-    std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
-    std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
-    std::string key = read_file_bin("./deps/secret/cert/key.pem");
-
-    ctx.set_options(boost::asio::ssl::context::default_workarounds |
-                    boost::asio::ssl::context::no_sslv2 |
-                    boost::asio::ssl::context::single_dh_use |
-                    boost::asio::ssl::context::no_sslv3);
-
-    ctx.use_certificate_chain(
-        boost::asio::buffer(cert.data(), cert.size()));
-
-    ctx.use_private_key(
-        boost::asio::buffer(key.data(), key.size()),
-        boost::asio::ssl::context::file_format::pem);
-
-    ctx.use_tmp_dh(
-        boost::asio::buffer(dh.data(), dh.size()));
-
-    tcp::socket next_socket{acceptor_context};
     bool async_in_flight = false;
 
-    ///owning, individual elements are recycled
-    std::vector<session_data<T>*> all_session_data;
-
-    std::vector<uint64_t> wake_queue;
-    std::vector<uint64_t> next_wake_queue;
-
-    uint64_t tick = 0;
-
-    while(1)
+    acceptor_data(const std::string& saddress, uint16_t port) :
+        acceptor_context{1},
+        acceptor{acceptor_context, {boost::asio::ip::make_address(saddress), port}},
+        next_socket{acceptor_context}
     {
-        tick++;
+        acceptor.set_option(boost::asio::socket_base::reuse_address(true));
+
+        std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
+        std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
+        std::string key = read_file_bin("./deps/secret/cert/key.pem");
+
+        ctx.set_options(boost::asio::ssl::context::default_workarounds |
+                        boost::asio::ssl::context::no_sslv2 |
+                        boost::asio::ssl::context::single_dh_use |
+                        boost::asio::ssl::context::no_sslv3);
+
+        ctx.use_certificate_chain(
+            boost::asio::buffer(cert.data(), cert.size()));
+
+        ctx.use_private_key(
+            boost::asio::buffer(key.data(), key.size()),
+            boost::asio::ssl::context::file_format::pem);
+
+        ctx.use_tmp_dh(
+            boost::asio::buffer(dh.data(), dh.size()));
+    }
+
+    std::optional<tcp::socket> get_next_socket()
+    {
+        std::optional<tcp::socket> ret;
 
         if(!async_in_flight)
         {
@@ -683,32 +676,8 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                 }
                 else
                 {
-                    uint64_t id = -1;
-
-                    {
-                        std::lock_guard guard(conn.free_id_queue_lock);
-
-                        if(conn.free_id_queue.size() == 0)
-                        {
-                            id = conn.id++;
-                            all_session_data.push_back(nullptr);
-                        }
-                        else
-                        {
-                            id = conn.free_id_queue.back();
-                            conn.free_id_queue.pop_back();
-                        }
-                    }
-
-                    session_data<T>* dat = new session_data<T>(std::move(next_socket), sett);
-
-                    all_session_data[id] = dat;
-
-                    dat->id = id;
-                    dat->ctx = &ctx;
+                    ret = std::move(next_socket);
                     next_socket = tcp::socket{acceptor_context};
-
-                    wake_queue.push_back(id);
                     async_in_flight = false;
                 }
             });
@@ -718,6 +687,58 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
 
         if(acceptor_context.stopped())
             acceptor_context.restart();
+
+        return ret;
+    }
+};
+
+template<typename T>
+void server_thread(connection& conn, std::string saddress, uint16_t port, connection_settings sett)
+{
+    acceptor_data acceptor_ctx(saddress, port);
+
+    ///owning, individual elements are recycled
+    std::vector<session_data<T>*> all_session_data;
+
+    std::vector<uint64_t> wake_queue;
+    std::vector<uint64_t> next_wake_queue;
+
+    uint64_t tick = 0;
+
+    while(1)
+    {
+        tick++;
+
+        auto sock_opt = acceptor_ctx.get_next_socket();
+
+        if(sock_opt.has_value())
+        {
+            uint64_t id = -1;
+
+            {
+                std::lock_guard guard(conn.free_id_queue_lock);
+
+                if(conn.free_id_queue.size() == 0)
+                {
+                    id = conn.id++;
+                    all_session_data.push_back(nullptr);
+                }
+                else
+                {
+                    id = conn.free_id_queue.back();
+                    conn.free_id_queue.pop_back();
+                }
+            }
+
+            session_data<T>* dat = new session_data<T>(std::move(sock_opt.value()), sett);
+
+            all_session_data[id] = dat;
+
+            dat->id = id;
+            dat->ctx = &acceptor_ctx.ctx;
+
+            wake_queue.push_back(id);
+        }
 
         {
             std::lock_guard guard(conn.wake_lock);
@@ -1268,6 +1289,12 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
 }
 }
 #endif // __EMSCRIPTEN__
+
+template<typename T>
+void server_http_thread(connection& conn, const std::string& address, uint16_t port, connection_settings sett)
+{
+
+}
 
 bool connection::connection_pending()
 {
