@@ -671,15 +671,14 @@ struct acceptor_data
                 if(ec)
                 {
                     std::cout << "Error in async accept " << ec.message() << std::endl;
-                    next_socket = tcp::socket{acceptor_context};
-                    async_in_flight = false;
                 }
                 else
                 {
                     ret = std::move(next_socket);
-                    next_socket = tcp::socket{acceptor_context};
-                    async_in_flight = false;
                 }
+
+                next_socket = tcp::socket{acceptor_context};
+                async_in_flight = false;
             });
         }
 
