@@ -1279,7 +1279,6 @@ void connection::host(const std::string& address, uint16_t port, connection_type
 {
     sett = _sett;
 
-    thread_is_server = true;
     is_client = false;
 
     #ifdef SUPPORT_NO_SSL_SERVER
@@ -1294,7 +1293,6 @@ void connection::host(const std::string& address, uint16_t port, connection_type
 
 void connection::connect(const std::string& address, uint16_t port, connection_type::type type, std::string sni_hostname)
 {
-    thread_is_client = true;
     is_client = true;
 
     #ifndef SERVER_ONLY
