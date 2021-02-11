@@ -336,7 +336,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 #ifdef ASYNC_THREAD
 
 template<typename T>
-struct session_data
+struct websocket_session_data
 {
     T* wps = nullptr;
     uint64_t id = -1;
@@ -373,7 +373,7 @@ struct session_data
 
     state current_state = start;
 
-    session_data(tcp::socket&& _sock, connection_settings _sett) : socket(std::move(_sock)), sett(_sett){}
+    websocket_session_data(tcp::socket&& _sock, connection_settings _sett) : socket(std::move(_sock)), sett(_sett){}
 
     void tick(connection& conn, std::vector<uint64_t>& wake_queue)
     {
@@ -697,7 +697,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
     acceptor_data acceptor_ctx(saddress, port);
 
     ///owning, individual elements are recycled
-    std::vector<session_data<T>*> all_session_data;
+    std::vector<websocket_session_data<T>*> all_session_data;
 
     std::vector<uint64_t> wake_queue;
     std::vector<uint64_t> next_wake_queue;
@@ -729,7 +729,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                 }
             }
 
-            session_data<T>* dat = new session_data<T>(std::move(sock_opt.value()), sett);
+            websocket_session_data<T>* dat = new websocket_session_data<T>(std::move(sock_opt.value()), sett);
 
             all_session_data[id] = dat;
 
@@ -758,12 +758,12 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                 if(i >= all_session_data.size())
                     continue;
 
-                session_data<T>* pdata = all_session_data[i];
+                websocket_session_data<T>* pdata = all_session_data[i];
 
                 ///if we're not terminated, and we're not already in an error, transition
-                if(pdata->current_state != session_data<T>::err && pdata->current_state != session_data<T>::terminated)
+                if(pdata->current_state != websocket_session_data<T>::err && pdata->current_state != websocket_session_data<T>::terminated)
                 {
-                    pdata->current_state = session_data<T>::err;
+                    pdata->current_state = websocket_session_data<T>::err;
                     wake_queue.push_back(i);
                 }
             }
@@ -776,7 +776,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
             if(id >= all_session_data.size())
                 continue;
 
-            session_data<T>* pdata = all_session_data[id];
+            websocket_session_data<T>* pdata = all_session_data[id];
 
             ///spurious wakeup
             if(pdata == nullptr)
@@ -785,7 +785,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
             ///doesn't matter if we get a spurious wakeup
             pdata->tick(conn, next_wake_queue);
 
-            if(pdata->current_state == session_data<T>::terminated)
+            if(pdata->current_state == websocket_session_data<T>::terminated)
             {
                 delete pdata;
                 all_session_data[id] = nullptr;
