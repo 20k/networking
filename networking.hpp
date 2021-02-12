@@ -53,6 +53,8 @@ struct connection_settings
     uint64_t max_write_size = 16 * 1024 * 1024;
 };
 
+///so: Todo. I think the submitting side needs to essentially create a batch of work, that gets transferred all at once
+///that way, this avoids the toctou problem with some of this api, and would especially avoid toctou while doing http
 struct connection
 {
     void host(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN, connection_settings sett = connection_settings());

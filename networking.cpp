@@ -751,6 +751,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
 
         if((tick % 100) == 0)
         {
+            ///don't hold this lock so long!
             std::lock_guard guard(conn.force_disconnection_lock);
 
             for(auto i : conn.force_disconnection_queue)
