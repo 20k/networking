@@ -1296,7 +1296,7 @@ void server_http_thread(connection& conn, const std::string& address, uint16_t p
 
 }
 
-std::optional<write_data> connection_received_data::get_next_read()
+/*std::optional<write_data> connection_received_data::get_next_read()
 {
     for(auto& i : read_queue)
     {
@@ -1322,7 +1322,7 @@ std::optional<write_data> connection_received_data::get_next_read()
     }
 
     return std::nullopt;
-}
+}*/
 
 bool connection::connection_pending()
 {
@@ -1370,6 +1370,18 @@ void connection::connect(const std::string& address, uint16_t port, connection_t
     #endif // SERVER_ONLY
 }
 
+template<typename T>
+inline
+void conditional_erase(T& in, int id)
+{
+    auto it = in.find(id);
+
+    if(it == in.end())
+        return;
+
+    in.erase(it);
+}
+
 void connection::receive_bulk(connection_received_data& in)
 {
     in = connection_received_data();
@@ -1383,11 +1395,44 @@ void connection::receive_bulk(connection_received_data& in)
     }
 
     {
-        std::scoped_lock guard(disconnected_lock);
+        {
+            std::scoped_lock guard(disconnected_lock);
 
-        in.disconnected_clients = std::move(disconnected_clients);
+            in.disconnected_clients = std::move(disconnected_clients);
 
-        disconnected_clients.clear();
+            disconnected_clients.clear();
+
+            for(uint64_t id : in.disconnected_clients)
+            {
+                std::scoped_lock guard(mut);
+
+                conditional_erase(directed_write_queue, id);
+                conditional_erase(directed_write_lock, id);
+                conditional_erase(fine_read_queue, id);
+                conditional_erase(fine_read_lock, id);
+            }
+        }
+
+        {
+            std::lock_guard guard(force_disconnection_lock);
+
+            for(uint64_t id : in.disconnected_clients)
+            {
+                auto it = force_disconnection_queue.find(id);
+
+                if(it != force_disconnection_queue.end())
+                    force_disconnection_queue.erase(it);
+            }
+        }
+
+        {
+            std::lock_guard guard(free_id_queue_lock);
+
+            for(uint64_t id : in.disconnected_clients)
+            {
+                free_id_queue.push_back(id);
+            }
+        }
     }
 
     {
@@ -1559,18 +1604,6 @@ std::optional<uint64_t> connection::has_disconnected_client()
     }
 
     return std::nullopt;
-}
-
-template<typename T>
-inline
-void conditional_erase(T& in, int id)
-{
-    auto it = in.find(id);
-
-    if(it == in.end())
-        return;
-
-    in.erase(it);
 }
 
 void connection::pop_disconnected_client()

@@ -60,7 +60,7 @@ struct connection_received_data
 
     std::map<uint64_t, std::vector<write_data>> read_queue;
 
-    std::optional<write_data> get_next_read();
+    //std::optional<write_data> get_next_read();
 
 private:
     size_t last_read_from = -1;
