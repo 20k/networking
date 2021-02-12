@@ -53,12 +53,27 @@ struct connection_settings
     uint64_t max_write_size = 16 * 1024 * 1024;
 };
 
+struct connection_received_data
+{
+    std::deque<uint64_t> new_clients;
+    std::deque<uint64_t> disconnected_clients;
+
+    std::map<uint64_t, std::vector<write_data>> read_queue;
+
+    std::optional<write_data> get_next_read();
+
+private:
+    size_t last_read_from = -1;
+};
+
 ///so: Todo. I think the submitting side needs to essentially create a batch of work, that gets transferred all at once
 ///that way, this avoids the toctou problem with some of this api, and would especially avoid toctou while doing http
 struct connection
 {
     void host(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN, connection_settings sett = connection_settings());
     void connect(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN, std::string sni_hostname = "");
+
+    void receive_bulk(connection_received_data& in);
 
     std::optional<uint64_t> has_new_client();
     void pop_new_client();

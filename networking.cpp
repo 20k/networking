@@ -1296,6 +1296,34 @@ void server_http_thread(connection& conn, const std::string& address, uint16_t p
 
 }
 
+std::optional<write_data> connection_received_data::get_next_read()
+{
+    for(auto& i : read_queue)
+    {
+        if(i.first <= last_read_from)
+            continue;
+
+        if(i.second.size() > 0)
+        {
+            last_read_from = i.first;
+            return i.second.front();
+        }
+    }
+
+    ///nobody suitable available, check if we have a read available from anyone at all
+    ///std::map is sorted so we'll read from lowest id person in the queue
+    for(auto& i : read_queue)
+    {
+        if(i.second.size() > 0)
+        {
+            last_read_from = i.first;
+            return i.second.front();
+        }
+    }
+
+    return std::nullopt;
+}
+
 bool connection::connection_pending()
 {
     return connection_in_progress;
@@ -1340,6 +1368,40 @@ void connection::connect(const std::string& address, uint16_t port, connection_t
     thrd.emplace_back(client_thread_tcp, std::ref(*this), address, port);
     #endif
     #endif // SERVER_ONLY
+}
+
+void connection::receive_bulk(connection_received_data& in)
+{
+    in = connection_received_data();
+
+    {
+        std::scoped_lock guard(mut);
+
+        in.new_clients = std::move(new_clients);
+
+        new_clients.clear();
+    }
+
+    {
+        std::scoped_lock guard(disconnected_lock);
+
+        in.disconnected_clients = std::move(disconnected_clients);
+
+        disconnected_clients.clear();
+    }
+
+    {
+        std::scoped_lock guard(mut);
+
+        for(auto& i : fine_read_queue)
+        {
+            std::lock_guard g2(fine_read_lock[i.first]);
+
+            in.read_queue[i.first] = std::move(i.second);
+
+            i.second.clear();
+        }
+    }
 }
 
 void connection::write(const std::string& data)
