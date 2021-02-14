@@ -87,7 +87,6 @@ struct connection
     void host(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN, connection_settings sett = connection_settings());
     void connect(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN, std::string sni_hostname = "");
 
-    ///returns clients that have hit write cap
     void send_bulk(connection_send_data& in);
     void receive_bulk(connection_received_data& in);
 
