@@ -91,27 +91,35 @@ struct connection
     void send_bulk(connection_send_data& in);
     void receive_bulk(connection_received_data& in);
 
+    [[deprecated]]
     std::optional<uint64_t> has_new_client();
+    [[deprecated]]
     void pop_new_client();
 
+    [[deprecated]]
     std::optional<uint64_t> has_disconnected_client();
+    [[deprecated]]
     void pop_disconnected_client();
 
     size_t last_read_from = -1;
 
     bool connection_pending();
 
+    [[deprecated]]
     bool has_read();
+    [[deprecated]]
     write_data read_from();
-    //std::string read();
+    [[deprecated]]
     void pop_read(uint64_t id);
 
+    [[deprecated]]
     void force_disconnect(uint64_t id) noexcept;
 
     void set_client_sleep_interval(uint64_t time_ms);
 
     #ifndef NO_SERIALISATION
     template<typename T>
+    [[deprecated]]
     uint64_t reads_from(T& old)
     {
         write_data data = read_from();
@@ -124,19 +132,14 @@ struct connection
     }
     #endif
 
-
-    /*template<typename T>
-    writes_data<T> reads_from()
-    {
-        T none = T();
-        return reads_from(none);
-    }*/
-
+    [[deprecated]]
     void write_to(const write_data& data);
+    [[deprecated]]
     void write(const std::string& data);
 
     #ifndef NO_SERIALISATION
     template<typename T>
+    [[deprecated]]
     void writes_to(T& data, uint64_t to_id)
     {
         nlohmann::json ret = serialise(data);
