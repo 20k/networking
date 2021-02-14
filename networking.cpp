@@ -353,7 +353,6 @@ template<typename T>
 struct websocket_session_data : session_data
 {
     uint64_t id = -1;
-    ssl::context* ctx = nullptr;
     T stream;
     //tcp::socket socket;
     connection_settings sett;
@@ -647,7 +646,6 @@ struct http_session_data : session_data
 {
     uint64_t id = -1;
     connection_settings sett;
-    ssl::context* ctx = nullptr;
 
     T stream;
 
@@ -684,8 +682,8 @@ struct http_session_data : session_data
     state current_state = start;
 
 
-    http_session_data(tcp::socket&& _sock, connection_settings _sett) requires std::is_same_v<T, boost::beast::tcp_stream> : sett(_sett), stream(std::move(_sock)) {}
-    http_session_data(tcp::socket&& _sock, connection_settings _sett) requires std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>> : sett(_sett), stream(std::move(_sock), *ctx) {}
+    http_session_data(tcp::socket&& _sock, connection_settings _sett, ssl::context& ctx) requires std::is_same_v<T, boost::beast::tcp_stream> : sett(_sett), stream(std::move(_sock)) {}
+    http_session_data(tcp::socket&& _sock, connection_settings _sett, ssl::context& ctx) requires std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>> : sett(_sett), stream(std::move(_sock), ctx) {}
 
     virtual bool can_terminate() override
     {
@@ -747,9 +745,10 @@ struct http_session_data : session_data
             has_cancelled = true;
             current_state = terminated;
 
+            boost::beast::get_lowest_layer(stream).expires_never();
+
             websocket_session_data<T>* next_session = new websocket_session_data<T>(std::move(stream), sett);
             next_session->id = id;
-            next_session->ctx = ctx;
 
             next_session->perform_upgrade_from_accept(parser->release(), wake_queue);
 
@@ -778,6 +777,7 @@ struct http_session_data : session_data
 
             if constexpr(std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>>)
             {
+                stream.next_layer().expires_after(std::chrono::seconds(15));
                 stream.next_layer().socket().set_option(nagle);
 
                 stream.async_handshake(ssl::stream_base::server, [&](auto ec)
@@ -1041,13 +1041,12 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                 }
             }
 
-            http_session_data<T>* dat = new http_session_data<T>(std::move(sock_opt.value()), sett);
+            http_session_data<T>* dat = new http_session_data<T>(std::move(sock_opt.value()), sett, acceptor_ctx.ctx);
             //websocket_session_data<T>* dat = new websocket_session_data<T>(std::move(sock_opt.value()), sett);
 
             all_session_data[id] = dat;
 
             dat->id = id;
-            dat->ctx = &acceptor_ctx.ctx;
 
             wake_queue.push_back(id);
         }
