@@ -354,7 +354,7 @@ struct websocket_session_data : session_data
 {
     uint64_t id = -1;
     ssl::context* ctx = nullptr;
-    T* stream = nullptr;
+    T stream;
     //tcp::socket socket;
     connection_settings sett;
     websocket::stream<T>* wps = nullptr;
@@ -388,12 +388,10 @@ struct websocket_session_data : session_data
 
     state current_state = start;
 
-    websocket_session_data(T* _stream, connection_settings _sett) : stream(_stream), sett(_sett)
+    websocket_session_data(T&& _stream, connection_settings _sett) : stream(std::move(_stream)), sett(_sett)
     {
 
     }
-
-    //websocket_session_data(tcp::socket&& _sock, connection_settings _sett) : session_data(std::move(_sock), _sett), websock_stream(stream){}
 
     virtual bool can_terminate() override
     {
@@ -415,32 +413,12 @@ struct websocket_session_data : session_data
         current_state = err;
     }
 
-    template<typename U>
-    void perform_upgrade_from_accept(U req, std::vector<uint64_t>& wake_queue)
+    void create_stream()
     {
-        printf("Upgr\n");
-
-        if constexpr(std::is_same_v<T, boost::beast::tcp_stream>)
-        {
-            wps = new websocket::stream<T>{std::move(*stream)};
-            //wps = new websocket::stream<T>{std::move(socket)};
-            wps->text(false);
-            wps->write_buffer_bytes(8192);
-            wps->read_message_max(sett.max_read_size);
-        }
-
-        if constexpr(std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>>)
-        {
-            wps = new websocket::stream<T>{std::move(*stream)};
-            //wps = new websocket::stream<T>{std::move(socket), *ctx};
-            wps->text(false);
-            wps->write_buffer_bytes(8192);
-            wps->read_message_max(sett.max_read_size);
-        }
-
-        can_cancel = true;
-
-        current_state = blocked;
+        wps = new websocket::stream<T>{std::move(stream)};
+        wps->text(false);
+        wps->write_buffer_bytes(8192);
+        wps->read_message_max(sett.max_read_size);
 
         wps->set_option(websocket::stream_base::decorator(
         [](websocket::response_type& res)
@@ -461,14 +439,21 @@ struct websocket_session_data : session_data
 
             wps->set_option(opt);
         }
+    }
+
+    template<typename U>
+    void perform_upgrade_from_accept(U req, std::vector<uint64_t>& wake_queue)
+    {
+        create_stream();
+
+        can_cancel = true;
+        current_state = blocked;
 
         wps->async_accept(req,
         [&](auto ec)
         {
             if(ec)
             {
-                printf("Upgr fail\n");
-
                 last_ec = ec;
                 current_state = err;
                 wake_queue.push_back(id);
@@ -478,8 +463,6 @@ struct websocket_session_data : session_data
             current_state = has_accept;
 
             wake_queue.push_back(id);
-
-            printf("Upgr success\n");
         });
     }
 
@@ -516,48 +499,10 @@ struct websocket_session_data : session_data
     {
         if(current_state == start)
         {
-            if constexpr(std::is_same_v<T, boost::beast::tcp_stream>)
-            {
-                wps = new websocket::stream<T>{std::move(*stream)};
-                //wps = new websocket::stream<T>{std::move(socket)};
-                wps->text(false);
-                wps->write_buffer_bytes(8192);
-                wps->read_message_max(sett.max_read_size);
-                ///don't need to awake, as we didn't sleep
-            }
-
-            if constexpr(std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>>)
-            {
-                wps = new websocket::stream<T>{std::move(*stream)};
-                //wps = new websocket::stream<T>{std::move(socket), *ctx};
-                wps->text(false);
-                wps->write_buffer_bytes(8192);
-                wps->read_message_max(sett.max_read_size);
-            }
+            create_stream();
 
             can_cancel = true;
-
             current_state = blocked;
-
-            wps->set_option(websocket::stream_base::decorator(
-            [](websocket::response_type& res)
-            {
-                res.insert(boost::beast::http::field::sec_websocket_protocol, "binary");
-            }));
-
-            if(sett.enable_compression)
-            {
-                boost::beast::websocket::permessage_deflate opt;
-                ///enabling deflate causes server memory usage to climb extremely high
-                ///todo tomorrow: check if this is a real memory leak
-                opt.server_enable = true;
-                opt.client_enable = true;
-                opt.server_max_window_bits = sett.max_window_bits;
-                opt.memLevel = sett.memory_level;
-                opt.compLevel = sett.compression_level;
-
-                wps->set_option(opt);
-            }
 
             wps->async_accept([&](auto ec)
             {
@@ -700,12 +645,11 @@ struct websocket_session_data : session_data
 template<typename T>
 struct http_session_data : session_data
 {
-    tcp::socket socket;
     uint64_t id = -1;
     connection_settings sett;
     ssl::context* ctx = nullptr;
 
-    T* stream = nullptr;
+    T stream;
 
     bool can_cancel = false;
     bool has_cancelled = false;
@@ -739,7 +683,9 @@ struct http_session_data : session_data
 
     state current_state = start;
 
-    http_session_data(tcp::socket&& _sock, connection_settings _sett) : socket(std::move(_sock)), sett(_sett){}
+
+    http_session_data(tcp::socket&& _sock, connection_settings _sett) requires std::is_same_v<T, boost::beast::tcp_stream> : sett(_sett), stream(std::move(_sock)) {}
+    http_session_data(tcp::socket&& _sock, connection_settings _sett) requires std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>> : sett(_sett), stream(std::move(_sock), *ctx) {}
 
     virtual bool can_terminate() override
     {
@@ -776,11 +722,6 @@ struct http_session_data : session_data
 
         if(current_state == err && !async_read && !async_write)
         {
-            if(stream)
-            {
-                delete stream;
-                stream = nullptr;
-            }
 
             printf("Got networking error %s with value %s:%i\n", last_ec.message().c_str(), last_ec.category().name(), last_ec.value());
 
@@ -794,7 +735,7 @@ struct http_session_data : session_data
             if(can_cancel && !has_cancelled)
             {
                 boost::system::error_code ec;
-                boost::beast::get_lowest_layer(*stream).socket().cancel(ec);
+                boost::beast::get_lowest_layer(stream).socket().cancel(ec);
                 has_cancelled = true;
             }
 
@@ -806,7 +747,7 @@ struct http_session_data : session_data
             has_cancelled = true;
             current_state = terminated;
 
-            websocket_session_data<T>* next_session = new websocket_session_data<T>(stream, sett);
+            websocket_session_data<T>* next_session = new websocket_session_data<T>(std::move(stream), sett);
             next_session->id = id;
             next_session->ctx = ctx;
 
@@ -828,21 +769,18 @@ struct http_session_data : session_data
 
             if constexpr(std::is_same_v<T, boost::beast::tcp_stream>)
             {
-                stream = new T{std::move(socket)};
-                stream->expires_after(std::chrono::seconds(15));
+                stream.expires_after(std::chrono::seconds(15));
 
-                stream->socket().set_option(nagle);
+                stream.socket().set_option(nagle);
                 current_state = has_handshake;
                 ///don't need to awake, as we didn't sleep
             }
 
             if constexpr(std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>>)
             {
-                stream = new T{std::move(socket), *ctx};
+                stream.next_layer().socket().set_option(nagle);
 
-                stream->next_layer().socket().set_option(nagle);
-
-                stream->async_handshake(ssl::stream_base::server, [&](auto ec)
+                stream.async_handshake(ssl::stream_base::server, [&](auto ec)
                 {
                     if(ec)
                     {
@@ -886,7 +824,7 @@ struct http_session_data : session_data
 
         if(current_state == read_write)
         {
-            T& ws = *stream;
+            T& ws = stream;
 
             std::vector<write_data>& write_queue = *write_queue_ptr;
             std::mutex& write_mutex = *write_mutex_ptr;
@@ -910,7 +848,6 @@ struct http_session_data : session_data
                         wake_queue.push_back(id);
                         return nullptr;
                     }
-
 
                     wbuffer.consume(wbuffer.size());
 
@@ -956,8 +893,6 @@ struct http_session_data : session_data
 
                     if(boost::beast::websocket::is_upgrade(parser->get()))
                     {
-                        printf("Todo: Websockets\n");
-
                         current_state = upgrade;
 
                         ///not sure if i can clear rbuffer for parser
