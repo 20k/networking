@@ -169,6 +169,7 @@ struct connection
 
     std::atomic_int id = 0;
     std::deque<uint64_t> new_clients;
+    std::deque<uint64_t> new_http_clients;
     std::vector<std::thread> thrd;
 
     std::mutex disconnected_lock;
