@@ -337,6 +337,8 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 
 struct session_data
 {
+    session_data(tcp::socket&& _sock, connection_settings _sett) : socket(std::move(_sock)), sett(_sett){}
+
     virtual bool can_terminate(){return false;}
     virtual bool has_terminated(){return false;}
     virtual bool has_errored(){return false;}
@@ -344,18 +346,19 @@ struct session_data
     virtual void tick(connection& conn, std::vector<uint64_t>& wake_queue) {}
 
     virtual ~session_data(){}
+
+    uint64_t id = -1;
+    tcp::socket socket;
+    connection_settings sett;
+    ssl::context* ctx = nullptr;
 };
 
 template<typename T>
 struct websocket_session_data : session_data
 {
-    T* wps = nullptr;
-    uint64_t id = -1;
-    tcp::socket socket;
+    websocket::stream<T>* wps = nullptr;
     bool can_cancel = false;
     bool has_cancelled = false;
-    ssl::context* ctx = nullptr;
-    connection_settings sett;
 
     boost::beast::flat_buffer rbuffer;
     boost::beast::flat_buffer wbuffer;
@@ -374,7 +377,6 @@ struct websocket_session_data : session_data
     enum state
     {
         start,
-        has_handshake,
         has_accept,
         read_write,
         blocked,
@@ -384,7 +386,7 @@ struct websocket_session_data : session_data
 
     state current_state = start;
 
-    websocket_session_data(tcp::socket&& _sock, connection_settings _sett) : socket(std::move(_sock)), sett(_sett){}
+    websocket_session_data(tcp::socket&& _sock, connection_settings _sett) : session_data(std::move(_sock), _sett){}
 
     virtual bool can_terminate() override
     {
@@ -446,50 +448,26 @@ struct websocket_session_data : session_data
         if(current_state == start)
         {
             current_state = blocked;
-            boost::asio::ip::tcp::no_delay nagle(true);
 
-            if constexpr(std::is_same_v<T, websocket::stream<boost::beast::tcp_stream>>)
+            if constexpr(std::is_same_v<T, boost::beast::tcp_stream>)
             {
-                wps = new T{std::move(socket)};
+                wps = new websocket::stream<T>{std::move(socket)};
                 wps->text(false);
                 wps->write_buffer_bytes(8192);
                 wps->read_message_max(sett.max_read_size);
-
-                wps->next_layer().socket().set_option(nagle);
-                current_state = has_handshake;
                 ///don't need to awake, as we didn't sleep
             }
 
-            if constexpr(std::is_same_v<T, websocket::stream<ssl::stream<boost::beast::tcp_stream>>>)
+            if constexpr(std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>>)
             {
-                wps = new T{std::move(socket), *ctx};
+                wps = new websocket::stream<T>{std::move(socket), *ctx};
                 wps->text(false);
                 wps->write_buffer_bytes(8192);
                 wps->read_message_max(sett.max_read_size);
-
-                wps->next_layer().next_layer().socket().set_option(nagle);
-
-                wps->next_layer().async_handshake(ssl::stream_base::server, [&](auto ec)
-                {
-                    if(ec)
-                    {
-                        last_ec = ec;
-                        current_state = err;
-                    }
-                    else
-                    {
-                        current_state = has_handshake;
-                    }
-
-                    wake_queue.push_back(id);
-                });
             }
 
             can_cancel = true;
-        }
 
-        if(current_state == has_handshake)
-        {
             current_state = blocked;
             assert(wps != nullptr);
 
@@ -657,12 +635,8 @@ template<typename T>
 struct http_session_data : session_data
 {
     T* wps = nullptr;
-    uint64_t id = -1;
-    tcp::socket socket;
     bool can_cancel = false;
     bool has_cancelled = false;
-    ssl::context* ctx = nullptr;
-    connection_settings sett;
 
     boost::beast::flat_buffer rbuffer;
     boost::beast::flat_buffer wbuffer;
@@ -692,7 +666,7 @@ struct http_session_data : session_data
 
     state current_state = start;
 
-    http_session_data(tcp::socket&& _sock, connection_settings _sett) : socket(std::move(_sock)), sett(_sett){}
+    http_session_data(tcp::socket&& _sock, connection_settings _sett) : session_data(std::move(_sock), _sett){}
 
     virtual bool can_terminate() override
     {
@@ -1068,7 +1042,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                 }
             }
 
-            http_session_data<ssl::stream<boost::beast::tcp_stream>>* dat = new http_session_data<ssl::stream<boost::beast::tcp_stream>>(std::move(sock_opt.value()), sett);
+            http_session_data<T>* dat = new http_session_data<T>(std::move(sock_opt.value()), sett);
             //websocket_session_data<T>* dat = new websocket_session_data<T>(std::move(sock_opt.value()), sett);
 
             all_session_data[id] = dat;
@@ -1143,6 +1117,20 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                         if(conn.new_clients[i] == id)
                         {
                             conn.new_clients.erase(conn.new_clients.begin() + i);
+                            i--;
+                            continue;
+                        }
+                    }
+                }
+
+                {
+                    std::lock_guard guard(conn.mut);
+
+                    for(int i=0; i < (int)conn.new_http_clients.size(); i++)
+                    {
+                        if(conn.new_http_clients[i] == id)
+                        {
+                            conn.new_http_clients.erase(conn.new_http_clients.begin() + i);
                             i--;
                             continue;
                         }
@@ -1698,11 +1686,11 @@ void connection::host(const std::string& address, uint16_t port, connection_type
 
     #ifdef SUPPORT_NO_SSL_SERVER
     if(type == connection_type::PLAIN)
-        thrd.emplace_back(server_thread<websocket::stream<boost::beast::tcp_stream>>, std::ref(*this), address, port, sett);
+        thrd.emplace_back(server_thread<boost::beast::tcp_stream>, std::ref(*this), address, port, sett);
     #endif // SUPPORT_NO_SSL_SERVER
 
     if(type == connection_type::SSL)
-        thrd.emplace_back(server_thread<websocket::stream<ssl::stream<boost::beast::tcp_stream>>>, std::ref(*this), address, port, sett);
+        thrd.emplace_back(server_thread<ssl::stream<boost::beast::tcp_stream>>, std::ref(*this), address, port, sett);
 }
 #endif // __EMSCRIPTEN__
 
