@@ -57,6 +57,7 @@ struct connection_received_data
 {
     std::deque<uint64_t> new_clients;
     std::deque<uint64_t> disconnected_clients;
+    std::deque<uint64_t> upgraded_to_websocket;
 
     std::map<uint64_t, std::vector<write_data>> read_queue;
 
