@@ -1419,6 +1419,10 @@ void connection::send_bulk(connection_send_data& in)
     std::vector<std::vector<write_data>*> write_data_ptrs;
     std::vector<const std::vector<write_data>*> read_data_ptrs;
 
+    mutexes.reserve(in.write_queue.size());
+    write_data_ptrs.reserve(in.write_queue.size());
+    read_data_ptrs.reserve(in.write_queue.size());
+
     {
         std::lock_guard guard(mut);
 
