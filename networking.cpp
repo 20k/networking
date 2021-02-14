@@ -335,6 +335,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 #define ASYNC_THREAD
 #ifdef ASYNC_THREAD
 
+template<typename T>
 struct session_data
 {
     session_data(tcp::socket&& _sock, connection_settings _sett) : socket(std::move(_sock)), sett(_sett){}
@@ -347,16 +348,17 @@ struct session_data
 
     virtual ~session_data(){}
 
-    uint64_t id = -1;
     tcp::socket socket;
+    uint64_t id = -1;
     connection_settings sett;
     ssl::context* ctx = nullptr;
+    T* stream = nullptr;
 };
 
 template<typename T>
-struct websocket_session_data : session_data
+struct websocket_session_data : session_data<T>
 {
-    websocket::stream<T>* wps = nullptr;
+    websocket::stream<T&> websock_stream;
     bool can_cancel = false;
     bool has_cancelled = false;
 
@@ -386,7 +388,12 @@ struct websocket_session_data : session_data
 
     state current_state = start;
 
-    websocket_session_data(tcp::socket&& _sock, connection_settings _sett) : session_data(std::move(_sock), _sett){}
+    websocket_session_data(session_data<T>& other) : session_data<T>::stream(other.stream), websock_stream(*session_data<T>::stream)
+    {
+        other.stream = nullptr;
+    }
+
+    //websocket_session_data(tcp::socket&& _sock, connection_settings _sett) : session_data(std::move(_sock), _sett), websock_stream(stream){}
 
     virtual bool can_terminate() override
     {
@@ -418,12 +425,6 @@ struct websocket_session_data : session_data
 
         if(current_state == err && !async_read && !async_write)
         {
-            if(wps)
-            {
-                delete wps;
-                wps = nullptr;
-            }
-
             printf("Got networking error %s with value %s:%i\n", last_ec.message().c_str(), last_ec.category().name(), last_ec.value());
 
             current_state = terminated;
@@ -436,7 +437,7 @@ struct websocket_session_data : session_data
             if(can_cancel && !has_cancelled)
             {
                 boost::system::error_code ec;
-                boost::beast::get_lowest_layer(*wps).socket().cancel(ec);
+                boost::beast::get_lowest_layer(*websock_stream).socket().cancel(ec);
                 has_cancelled = true;
             }
 
@@ -449,51 +450,37 @@ struct websocket_session_data : session_data
         {
             current_state = blocked;
 
-            if constexpr(std::is_same_v<T, boost::beast::tcp_stream>)
-            {
-                wps = new websocket::stream<T>{std::move(socket)};
-                wps->text(false);
-                wps->write_buffer_bytes(8192);
-                wps->read_message_max(sett.max_read_size);
-                ///don't need to awake, as we didn't sleep
-            }
-
-            if constexpr(std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>>)
-            {
-                wps = new websocket::stream<T>{std::move(socket), *ctx};
-                wps->text(false);
-                wps->write_buffer_bytes(8192);
-                wps->read_message_max(sett.max_read_size);
-            }
+            websock_stream.text(false);
+            websock_stream.write_buffer_bytes(8192);
+            websock_stream.read_message_max(session_data<T>::sett.max_read_size);
 
             can_cancel = true;
 
             current_state = blocked;
-            assert(wps != nullptr);
 
-            T& ws = *wps;
-
-            ws.set_option(websocket::stream_base::decorator(
+            websock_stream.set_option(websocket::stream_base::decorator(
             [](websocket::response_type& res)
             {
                 res.insert(boost::beast::http::field::sec_websocket_protocol, "binary");
             }));
 
-            if(sett.enable_compression)
+            if(session_data<T>::sett.enable_compression)
             {
                 boost::beast::websocket::permessage_deflate opt;
                 ///enabling deflate causes server memory usage to climb extremely high
                 ///todo tomorrow: check if this is a real memory leak
                 opt.server_enable = true;
                 opt.client_enable = true;
-                opt.server_max_window_bits = sett.max_window_bits;
-                opt.memLevel = sett.memory_level;
-                opt.compLevel = sett.compression_level;
+                opt.server_max_window_bits = session_data<T>::sett.max_window_bits;
+                opt.memLevel = session_data<T>::sett.memory_level;
+                opt.compLevel = session_data<T>::sett.compression_level;
 
-                ws.set_option(opt);
+                websock_stream.set_option(opt);
             }
 
-            ws.async_accept([&](auto ec)
+            uint64_t id = session_data<T>::id;
+
+            websock_stream.async_accept([&](auto ec)
             {
                 if(ec)
                 {
@@ -511,6 +498,8 @@ struct websocket_session_data : session_data
 
         if(current_state == has_accept)
         {
+            uint64_t id = session_data<T>::id;
+
             printf("Connection %" PRIu64 " is negotiated\n", id);
             current_state = read_write;
 
@@ -534,7 +523,7 @@ struct websocket_session_data : session_data
 
         if(current_state == read_write)
         {
-            T& ws = *wps;
+            uint64_t id = session_data<T>::id;
 
             std::vector<write_data>& write_queue = *write_queue_ptr;
             std::mutex& write_mutex = *write_mutex_ptr;
@@ -567,7 +556,7 @@ struct websocket_session_data : session_data
 
                     async_write = true;
 
-                    ws.async_write(wbuffer.data(), [&](boost::system::error_code ec, std::size_t)
+                    websock_stream.async_write(wbuffer.data(), [&](boost::system::error_code ec, std::size_t)
                     {
                         if(ec.failed())
                         {
@@ -589,7 +578,7 @@ struct websocket_session_data : session_data
 
             if(!async_read)
             {
-                ws.async_read(rbuffer, [&](boost::system::error_code ec, std::size_t)
+                websock_stream.async_read(rbuffer, [&](boost::system::error_code ec, std::size_t)
                 {
                     if(ec.failed())
                     {
@@ -626,15 +615,14 @@ struct websocket_session_data : session_data
         printf("Err in session data\n");
         last_ec = {};
         current_state = err;
-        wake_queue.push_back(id);
+        wake_queue.push_back(session_data<T>::id);
     }
     }
 };
 
 template<typename T>
-struct http_session_data : session_data
+struct http_session_data : session_data<T>
 {
-    T* wps = nullptr;
     bool can_cancel = false;
     bool has_cancelled = false;
 
@@ -666,7 +654,7 @@ struct http_session_data : session_data
 
     state current_state = start;
 
-    http_session_data(tcp::socket&& _sock, connection_settings _sett) : session_data(std::move(_sock), _sett){}
+    http_session_data(tcp::socket&& _sock, connection_settings _sett) : session_data<T>(std::move(_sock), _sett){}
 
     virtual bool can_terminate() override
     {
@@ -690,6 +678,10 @@ struct http_session_data : session_data
 
     virtual void tick(connection& conn, std::vector<uint64_t>& wake_queue) override
     {
+        auto& stream = session_data<T>::stream;
+        uint64_t& id = session_data<T>::id;
+        auto& ctx = session_data<T>::ctx;
+
         if(current_state == blocked)
             return;
 
@@ -698,10 +690,10 @@ struct http_session_data : session_data
 
         if(current_state == err && !async_read && !async_write)
         {
-            if(wps)
+            if(stream)
             {
-                delete wps;
-                wps = nullptr;
+                delete stream;
+                stream = nullptr;
             }
 
             printf("Got networking error %s with value %s:%i\n", last_ec.message().c_str(), last_ec.category().name(), last_ec.value());
@@ -716,7 +708,7 @@ struct http_session_data : session_data
             if(can_cancel && !has_cancelled)
             {
                 boost::system::error_code ec;
-                boost::beast::get_lowest_layer(*wps).socket().cancel(ec);
+                boost::beast::get_lowest_layer(*stream).socket().cancel(ec);
                 has_cancelled = true;
             }
 
@@ -732,21 +724,21 @@ struct http_session_data : session_data
 
             if constexpr(std::is_same_v<T, boost::beast::tcp_stream>)
             {
-                wps = new T{std::move(socket)};
-                wps->expires_after(std::chrono::seconds(15));
+                stream = new T{std::move(session_data<T>::socket)};
+                stream->expires_after(std::chrono::seconds(15));
 
-                wps->socket().set_option(nagle);
+                stream->socket().set_option(nagle);
                 current_state = has_handshake;
                 ///don't need to awake, as we didn't sleep
             }
 
             if constexpr(std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>>)
             {
-                wps = new T{std::move(socket), *ctx};
+                stream = new T{std::move(session_data<T>::socket), *ctx};
 
-                wps->next_layer().socket().set_option(nagle);
+                stream->next_layer().socket().set_option(nagle);
 
-                wps->async_handshake(ssl::stream_base::server, [&](auto ec)
+                stream->async_handshake(ssl::stream_base::server, [&](auto ec)
                 {
                     if(ec)
                     {
@@ -790,7 +782,7 @@ struct http_session_data : session_data
 
         if(current_state == read_write)
         {
-            T& ws = *wps;
+            T& ws = *stream;
 
             std::vector<write_data>& write_queue = *write_queue_ptr;
             std::mutex& write_mutex = *write_mutex_ptr;
@@ -1010,7 +1002,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
     acceptor_data acceptor_ctx(saddress, port);
 
     ///owning, individual elements are recycled
-    std::vector<session_data*> all_session_data;
+    std::vector<session_data<T>*> all_session_data;
 
     std::vector<uint64_t> wake_queue;
     std::vector<uint64_t> next_wake_queue;
@@ -1073,7 +1065,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                 if(i >= all_session_data.size())
                     continue;
 
-                session_data* pdata = all_session_data[i];
+                session_data<T>* pdata = all_session_data[i];
 
                 ///if we're not terminated, and we're not already in an error, transition
                 if(pdata->can_terminate())
@@ -1091,7 +1083,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
             if(id >= all_session_data.size())
                 continue;
 
-            session_data* pdata = all_session_data[id];
+            session_data<T>* pdata = all_session_data[id];
 
             ///spurious wakeup
             if(pdata == nullptr)
