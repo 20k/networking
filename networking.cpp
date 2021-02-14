@@ -354,8 +354,8 @@ struct websocket_session_data : session_data
 {
     uint64_t id = -1;
     ssl::context* ctx = nullptr;
-    //T stream;
-    tcp::socket socket;
+    T* stream = nullptr;
+    //tcp::socket socket;
     connection_settings sett;
     websocket::stream<T>* wps = nullptr;
 
@@ -388,7 +388,7 @@ struct websocket_session_data : session_data
 
     state current_state = start;
 
-    websocket_session_data(tcp::socket&& _sock, connection_settings _sett) : socket(std::move(_sock)), sett(_sett)
+    websocket_session_data(T* _stream, connection_settings _sett) : stream(_stream), sett(_sett)
     {
 
     }
@@ -418,9 +418,12 @@ struct websocket_session_data : session_data
     template<typename U>
     void perform_upgrade_from_accept(U req, std::vector<uint64_t>& wake_queue)
     {
+        printf("Upgr\n");
+
         if constexpr(std::is_same_v<T, boost::beast::tcp_stream>)
         {
-            wps = new websocket::stream<T>{std::move(socket)};
+            wps = new websocket::stream<T>{std::move(*stream)};
+            //wps = new websocket::stream<T>{std::move(socket)};
             wps->text(false);
             wps->write_buffer_bytes(8192);
             wps->read_message_max(sett.max_read_size);
@@ -428,7 +431,8 @@ struct websocket_session_data : session_data
 
         if constexpr(std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>>)
         {
-            wps = new websocket::stream<T>{std::move(socket), *ctx};
+            wps = new websocket::stream<T>{std::move(*stream)};
+            //wps = new websocket::stream<T>{std::move(socket), *ctx};
             wps->text(false);
             wps->write_buffer_bytes(8192);
             wps->read_message_max(sett.max_read_size);
@@ -463,6 +467,8 @@ struct websocket_session_data : session_data
         {
             if(ec)
             {
+                printf("Upgr fail\n");
+
                 last_ec = ec;
                 current_state = err;
                 wake_queue.push_back(id);
@@ -472,6 +478,8 @@ struct websocket_session_data : session_data
             current_state = has_accept;
 
             wake_queue.push_back(id);
+
+            printf("Upgr success\n");
         });
     }
 
@@ -485,7 +493,7 @@ struct websocket_session_data : session_data
 
         if(current_state == err && !async_read && !async_write)
         {
-            printf("Got networking error %s with value %s:%i\n", last_ec.message().c_str(), last_ec.category().name(), last_ec.value());
+            printf("Got networking websockets error %s with value %s:%i\n", last_ec.message().c_str(), last_ec.category().name(), last_ec.value());
 
             current_state = terminated;
             return nullptr;
@@ -510,7 +518,8 @@ struct websocket_session_data : session_data
         {
             if constexpr(std::is_same_v<T, boost::beast::tcp_stream>)
             {
-                wps = new websocket::stream<T>{std::move(socket)};
+                wps = new websocket::stream<T>{std::move(*stream)};
+                //wps = new websocket::stream<T>{std::move(socket)};
                 wps->text(false);
                 wps->write_buffer_bytes(8192);
                 wps->read_message_max(sett.max_read_size);
@@ -519,8 +528,8 @@ struct websocket_session_data : session_data
 
             if constexpr(std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>>)
             {
-                //wps = new websocket::stream<T>{std::move(stream)};
-                wps = new websocket::stream<T>{std::move(socket), *ctx};
+                wps = new websocket::stream<T>{std::move(*stream)};
+                //wps = new websocket::stream<T>{std::move(socket), *ctx};
                 wps->text(false);
                 wps->write_buffer_bytes(8192);
                 wps->read_message_max(sett.max_read_size);
@@ -794,11 +803,10 @@ struct http_session_data : session_data
 
         if(current_state == upgrade)
         {
-            auto next_socket = boost::beast::get_lowest_layer(*stream).release_socket();
             has_cancelled = true;
-            current_state = err;
+            current_state = terminated;
 
-            websocket_session_data<T>* next_session = new websocket_session_data<T>(std::move(next_socket), sett);
+            websocket_session_data<T>* next_session = new websocket_session_data<T>(stream, sett);
             next_session->id = id;
             next_session->ctx = ctx;
 
@@ -1154,7 +1162,20 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                 continue;
 
             ///doesn't matter if we get a spurious wakeup
-            pdata->tick(conn, next_wake_queue);
+            session_data* next = pdata->tick(conn, next_wake_queue);
+
+            if(next)
+            {
+                delete pdata;
+
+                all_session_data[id] = next;
+                pdata = next;
+
+                {
+                    std::lock_guard guard(conn.mut);
+                    conn.upgraded_to_websocket.push_back(id);
+                }
+            }
 
             if(pdata->has_terminated())
             {
@@ -1850,8 +1871,10 @@ void connection::receive_bulk(connection_received_data& in)
         std::scoped_lock guard(mut);
 
         in.new_clients = std::move(new_clients);
-
         new_clients.clear();
+
+        in.upgraded_to_websocket = std::move(upgraded_to_websocket);
+        upgraded_to_websocket.clear();
     }
 
     {
