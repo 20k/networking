@@ -1324,6 +1324,26 @@ void server_http_thread(connection& conn, const std::string& address, uint16_t p
     return std::nullopt;
 }*/
 
+connection_send_data::connection_send_data(const connection_settings& _sett) : sett(_sett)
+{
+
+}
+
+void connection_send_data::disconnect(uint64_t id)
+{
+    force_disconnection_list.insert(id);
+}
+
+bool connection_send_data::write_to(const write_data& dat)
+{
+    if(dat.data.size() > sett.max_write_size)
+        return false;
+
+    write_queue[dat.id].push_back(dat);
+
+    return true;
+}
+
 bool connection::connection_pending()
 {
     return connection_in_progress;
@@ -1380,6 +1400,58 @@ void conditional_erase(T& in, int id)
         return;
 
     in.erase(it);
+}
+
+void connection::send_bulk(connection_send_data& in)
+{
+    {
+        std::scoped_lock guard(force_disconnection_lock);
+
+        for(auto id : in.force_disconnection_list)
+        {
+            force_disconnection_queue.insert(id);
+        }
+    }
+
+    in.force_disconnection_list.clear();
+
+    std::vector<std::mutex*> mutexes;
+    std::vector<std::vector<write_data>*> write_data_ptrs;
+    std::vector<const std::vector<write_data>*> read_data_ptrs;
+
+    {
+        std::lock_guard guard(mut);
+
+        for(const auto& i : in.write_queue)
+        {
+            mutexes.push_back(&directed_write_lock[i.first]);
+            write_data_ptrs.push_back(&directed_write_queue[i.first]);
+            read_data_ptrs.push_back(&i.second);
+        }
+    }
+
+    for(int idx = 0; idx < (int)mutexes.size(); idx++)
+    {
+        std::lock_guard guard(*mutexes[idx]);
+
+        std::vector<write_data>& write_queue = *write_data_ptrs[idx];
+        const std::vector<write_data>& to_append_queue = *read_data_ptrs[idx];
+
+        write_queue.insert(write_queue.end(), to_append_queue.begin(), to_append_queue.end());
+    }
+
+    {
+        std::lock_guard guard(wake_lock);
+
+        ///this is a change: instead of waking repeatedly per write, this only wakes once even if there are multiple writes pending
+        ///the underlying implementation already re-wakes, so this is a perf improvement
+        for(auto& i : in.write_queue)
+        {
+            wake_queue.push_back(i.first);
+        }
+    }
+
+    in.write_queue.clear();
 }
 
 void connection::receive_bulk(connection_received_data& in)
