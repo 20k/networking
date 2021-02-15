@@ -60,6 +60,15 @@ struct http_read_info
 
 struct http_write_info
 {
+    enum status_code
+    {
+        ok,
+        bad_request,
+        not_found,
+    };
+
+    status_code code = status_code::bad_request;
+
     uint64_t id;
     std::string mime_type;
     std::string body;

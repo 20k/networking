@@ -680,7 +680,7 @@ struct http_session_data : session_data
 
     state current_state = start;
 
-    boost::beast::http::response<boost::beast::http::dynamic_body> response_storage = get_dummy_response("hello");
+    boost::beast::http::response<boost::beast::http::dynamic_body> response_storage;
 
     http_session_data(tcp::socket&& _sock, connection_settings _sett, ssl::context& ctx) requires std::is_same_v<T, boost::beast::tcp_stream> : sett(_sett), stream(std::move(_sock)) {}
     http_session_data(tcp::socket&& _sock, connection_settings _sett, ssl::context& ctx) requires std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>> : sett(_sett), stream(std::move(_sock), ctx) {}
@@ -710,7 +710,19 @@ struct http_session_data : session_data
         return current_state == upgrade;
     }
 
-    auto get_dummy_response(const std::string& msg)
+    auto get_response_from_code(http_write_info::status_code code)
+    {
+        if(code == http_write_info::status_code::ok)
+            return boost::beast::http::response<boost::beast::http::dynamic_body>{boost::beast::http::status::ok, 11};
+        if(code == http_write_info::status_code::bad_request)
+            return boost::beast::http::response<boost::beast::http::dynamic_body>{boost::beast::http::status::bad_request, 11};
+        if(code == http_write_info::status_code::not_found)
+            return boost::beast::http::response<boost::beast::http::dynamic_body>{boost::beast::http::status::not_found, 11};
+
+        return boost::beast::http::response<boost::beast::http::dynamic_body>{boost::beast::http::status::bad_request, 11};
+    }
+
+    auto get_base_response(http_write_info::status_code code, const std::string& msg)
     {
         /*boost::beast::http::response<boost::beast::http::file_body> res{
             std::piecewise_construct,
@@ -721,7 +733,7 @@ struct http_session_data : session_data
         res.content_length(msg.size());
         res.keep_alive(false);*/
 
-        boost::beast::http::response<boost::beast::http::dynamic_body> response;
+        boost::beast::http::response<boost::beast::http::dynamic_body> response = get_response_from_code(code);
 
         response.version(11);
         response.result(boost::beast::http::status::ok);
@@ -874,6 +886,8 @@ struct http_session_data : session_data
                     }
 
                     async_write = true;
+
+                    response_storage = get_base_response(next.code, "none");
 
                     response_storage.body().consume(response_storage.body().size());
                     size_t n = buffer_copy(response_storage.body().prepare(next.body.size()), boost::asio::buffer(next.body));
