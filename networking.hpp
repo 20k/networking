@@ -53,6 +53,18 @@ struct connection_settings
     uint64_t max_write_size = 16 * 1024 * 1024;
 };
 
+struct http_read_info
+{
+    std::string path;
+};
+
+struct http_write_info
+{
+    uint64_t id;
+    std::string mime_type;
+    std::string body;
+};
+
 struct connection_received_data
 {
     std::deque<uint64_t> new_clients;
@@ -60,7 +72,8 @@ struct connection_received_data
     std::deque<uint64_t> disconnected_clients;
     std::deque<uint64_t> upgraded_to_websocket;
 
-    std::map<uint64_t, std::vector<write_data>> read_queue;
+    std::map<uint64_t, std::vector<write_data>> websocket_read_queue;
+    std::map<uint64_t, std::vector<http_read_info>> http_read_queue;
 
     //std::optional<write_data> get_next_read();
 
@@ -74,12 +87,14 @@ struct connection_send_data
 
     connection_send_data(const connection_settings& _sett);
 
-    std::map<uint64_t, std::vector<write_data>> write_queue;
+    std::map<uint64_t, std::vector<write_data>> websocket_write_queue;
+    std::map<uint64_t, std::vector<http_write_info>> http_write_queue;
     std::set<uint64_t> force_disconnection_list;
 
     void disconnect(uint64_t id);
     ///returns true on success
-    bool write_to(const write_data& dat);
+    bool write_to_websocket(const write_data& dat);
+    bool write_to_http(const http_write_info& info);
 };
 
 ///so: Todo. I think the submitting side needs to essentially create a batch of work, that gets transferred all at once
@@ -157,12 +172,14 @@ struct connection
     #endif
 
     std::mutex mut;
-    std::map<uint64_t, std::vector<write_data>> directed_write_queue;
+    std::map<uint64_t, std::vector<write_data>> directed_websocket_write_queue;
+    std::map<uint64_t, std::vector<http_write_info>> directed_http_write_queue;
     std::map<uint64_t, std::mutex> directed_write_lock;
 
     //std::vector<write_data> read_queue;
 
-    std::map<uint64_t, std::vector<write_data>> fine_read_queue;
+    std::map<uint64_t, std::vector<write_data>> fine_websocket_read_queue;
+    std::map<uint64_t, std::vector<http_read_info>> fine_http_read_queue;
     std::map<uint64_t, std::mutex> fine_read_lock;
 
     std::mutex wake_lock;

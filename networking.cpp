@@ -135,10 +135,10 @@ void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp:
         {
             std::unique_lock guard(conn.mut);
 
-            write_queue_ptr = &conn.directed_write_queue[id];
+            write_queue_ptr = &conn.directed_websocket_write_queue[id];
             write_mutex_ptr = &conn.directed_write_lock[id];
 
-            read_queue_ptr = &conn.fine_read_queue[id];
+            read_queue_ptr = &conn.fine_websocket_read_queue[id];
             read_mutex_ptr = &conn.fine_read_lock[id];
         }
 
@@ -526,10 +526,10 @@ struct websocket_session_data : session_data
             {
                 std::unique_lock guard(conn.mut);
 
-                write_queue_ptr = &conn.directed_write_queue[id];
+                write_queue_ptr = &conn.directed_websocket_write_queue[id];
                 write_mutex_ptr = &conn.directed_write_lock[id];
 
-                read_queue_ptr = &conn.fine_read_queue[id];
+                read_queue_ptr = &conn.fine_websocket_read_queue[id];
                 read_mutex_ptr = &conn.fine_read_lock[id];
             }
 
@@ -657,10 +657,10 @@ struct http_session_data : session_data
     bool async_read = false;
     bool async_write = false;
 
-    std::vector<write_data>* write_queue_ptr = nullptr;
+    std::vector<http_write_info>* write_queue_ptr = nullptr;
     std::mutex* write_mutex_ptr = nullptr;
 
-    std::vector<write_data>* read_queue_ptr = nullptr;
+    std::vector<http_read_info>* read_queue_ptr = nullptr;
     std::mutex* read_mutex_ptr = nullptr;
 
     boost::system::error_code last_ec{};
@@ -831,10 +831,10 @@ struct http_session_data : session_data
             {
                 std::unique_lock guard(conn.mut);
 
-                write_queue_ptr = &conn.directed_write_queue[id];
+                write_queue_ptr = &conn.directed_http_write_queue[id];
                 write_mutex_ptr = &conn.directed_write_lock[id];
 
-                read_queue_ptr = &conn.fine_read_queue[id];
+                read_queue_ptr = &conn.fine_http_read_queue[id];
                 read_mutex_ptr = &conn.fine_read_lock[id];
             }
 
@@ -850,10 +850,10 @@ struct http_session_data : session_data
         {
             T& ws = stream;
 
-            std::vector<write_data>& write_queue = *write_queue_ptr;
+            std::vector<http_write_info>& write_queue = *write_queue_ptr;
             std::mutex& write_mutex = *write_mutex_ptr;
 
-            std::vector<write_data>& read_queue = *read_queue_ptr;
+            std::vector<http_read_info>& read_queue = *read_queue_ptr;
             std::mutex& read_mutex = *read_mutex_ptr;
 
             ///so, theoretically if we don't have any writes, according to this state machine, we'll never wake up if a read doesn't hit us
@@ -864,7 +864,7 @@ struct http_session_data : session_data
 
                 for(auto it = write_queue.begin(); it != write_queue.end();)
                 {
-                    const write_data& next = *it;
+                    const http_write_info& next = *it;
 
                     if(next.id != id)
                     {
@@ -876,9 +876,11 @@ struct http_session_data : session_data
                     async_write = true;
 
                     response_storage.body().consume(response_storage.body().size());
-                    size_t n = buffer_copy(response_storage.body().prepare(next.data.size()), boost::asio::buffer(next.data));
+                    size_t n = buffer_copy(response_storage.body().prepare(next.body.size()), boost::asio::buffer(next.body));
                     response_storage.body().commit(n);
                     response_storage.content_length(response_storage.body().size());
+
+                    response_storage.set(boost::beast::http::field::content_type, next.mime_type);
 
                     boost::beast::http::async_write(stream, response_storage, [&](boost::system::error_code ec, std::size_t)
                     {
@@ -934,9 +936,8 @@ struct http_session_data : session_data
 
                             std::string_view target(boost_string_view.data(), boost_string_view.size());
 
-                            write_data ndata;
-                            ndata.data = std::string(target);
-                            ndata.id = id;
+                            http_read_info ndata;
+                            ndata.path = std::string(target);
 
                             std::lock_guard guard(read_mutex);
                             read_queue.push_back(ndata);
@@ -1277,10 +1278,10 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
         {
             std::unique_lock guard(conn.mut);
 
-            write_queue_ptr = &conn.directed_write_queue[-1];
+            write_queue_ptr = &conn.directed_websocket_write_queue[-1];
             write_mutex_ptr = &conn.directed_write_lock[-1];
 
-            read_queue_ptr = &conn.fine_read_queue[-1];
+            read_queue_ptr = &conn.fine_websocket_read_queue[-1];
             read_mutex_ptr = &conn.fine_read_lock[-1];
         }
 
@@ -1393,13 +1394,13 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
         {
             std::lock_guard g2(conn.directed_write_lock[-1]);
 
-            conn.directed_write_queue.clear();
+            conn.directed_websocket_write_queue.clear();
         }
 
         {
             std::lock_guard g3(conn.fine_read_lock[-1]);
 
-            conn.fine_read_queue.clear();
+            conn.fine_websocket_read_queue.clear();
         }
     }
 
@@ -1599,10 +1600,10 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
         {
             std::unique_lock guard(conn.mut);
 
-            write_queue_ptr = &conn.directed_write_queue[-1];
+            write_queue_ptr = &conn.directed_websocket_write_queue[-1];
             write_mutex_ptr = &conn.directed_write_lock[-1];
 
-            read_queue_ptr = &conn.fine_read_queue[-1];
+            read_queue_ptr = &conn.fine_websocket_read_queue[-1];
             read_mutex_ptr = &conn.fine_read_lock[-1];
         }
 
@@ -1645,13 +1646,13 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
         {
             std::lock_guard g2(conn.directed_write_lock[-1]);
 
-            conn.directed_write_queue.clear();
+            conn.directed_websocket_write_queue.clear();
         }
 
         {
             std::lock_guard g3(conn.fine_read_lock[-1]);
 
-            conn.fine_read_queue.clear();
+            conn.fine_websocket_read_queue.clear();
         }
     }
 
@@ -1704,12 +1705,22 @@ void connection_send_data::disconnect(uint64_t id)
     force_disconnection_list.insert(id);
 }
 
-bool connection_send_data::write_to(const write_data& dat)
+bool connection_send_data::write_to_websocket(const write_data& dat)
 {
     if(dat.data.size() > sett.max_write_size)
         return false;
 
-    write_queue[dat.id].push_back(dat);
+    websocket_write_queue[dat.id].push_back(dat);
+
+    return true;
+}
+
+bool connection_send_data::write_to_http(const http_write_info& info)
+{
+    if(info.body.size() > sett.max_write_size || info.mime_type.size() > sett.max_write_size)
+        return false;
+
+    http_write_queue[info.id].push_back(info);
 
     return true;
 }
@@ -1785,31 +1796,56 @@ void connection::send_bulk(connection_send_data& in)
 
     in.force_disconnection_list.clear();
 
-    std::vector<std::mutex*> mutexes;
-    std::vector<std::vector<write_data>*> write_data_ptrs;
-    std::vector<const std::vector<write_data>*> read_data_ptrs;
+    std::vector<std::mutex*> websocket_mutexes;
+    std::vector<std::vector<write_data>*> websocket_write_data_ptrs;
+    std::vector<const std::vector<write_data>*> websocket_read_data_ptrs;
 
-    mutexes.reserve(in.write_queue.size());
-    write_data_ptrs.reserve(in.write_queue.size());
-    read_data_ptrs.reserve(in.write_queue.size());
+    std::vector<std::mutex*> http_mutexes;
+    std::vector<std::vector<http_write_info>*> http_write_data_ptrs;
+    std::vector<const std::vector<http_write_info>*> http_read_data_ptrs;
+
+    websocket_mutexes.reserve(in.websocket_write_queue.size());
+    websocket_write_data_ptrs.reserve(in.websocket_write_queue.size());
+    websocket_read_data_ptrs.reserve(in.websocket_write_queue.size());
+
+    http_mutexes.reserve(in.http_write_queue.size());
+    http_write_data_ptrs.reserve(in.http_write_queue.size());
+    http_read_data_ptrs.reserve(in.http_write_queue.size());
 
     {
         std::lock_guard guard(mut);
 
-        for(const auto& i : in.write_queue)
+        for(const auto& i : in.websocket_write_queue)
         {
-            mutexes.push_back(&directed_write_lock[i.first]);
-            write_data_ptrs.push_back(&directed_write_queue[i.first]);
-            read_data_ptrs.push_back(&i.second);
+            websocket_mutexes.push_back(&directed_write_lock[i.first]);
+            websocket_write_data_ptrs.push_back(&directed_websocket_write_queue[i.first]);
+            websocket_read_data_ptrs.push_back(&i.second);
+        }
+
+        for(const auto& i : in.http_write_queue)
+        {
+            http_mutexes.push_back(&directed_write_lock[i.first]);
+            http_write_data_ptrs.push_back(&directed_http_write_queue[i.first]);
+            http_read_data_ptrs.push_back(&i.second);
         }
     }
 
-    for(int idx = 0; idx < (int)mutexes.size(); idx++)
+    for(int idx = 0; idx < (int)websocket_mutexes.size(); idx++)
     {
-        std::lock_guard guard(*mutexes[idx]);
+        std::lock_guard guard(*websocket_mutexes[idx]);
 
-        std::vector<write_data>& write_queue = *write_data_ptrs[idx];
-        const std::vector<write_data>& to_append_queue = *read_data_ptrs[idx];
+        auto& write_queue = *websocket_write_data_ptrs[idx];
+        const auto& to_append_queue = *websocket_read_data_ptrs[idx];
+
+        write_queue.insert(write_queue.end(), to_append_queue.begin(), to_append_queue.end());
+    }
+
+    for(int idx = 0; idx < (int)http_mutexes.size(); idx++)
+    {
+        std::lock_guard guard(*http_mutexes[idx]);
+
+        auto& write_queue = *http_write_data_ptrs[idx];
+        const auto& to_append_queue = *http_read_data_ptrs[idx];
 
         write_queue.insert(write_queue.end(), to_append_queue.begin(), to_append_queue.end());
     }
@@ -1819,13 +1855,19 @@ void connection::send_bulk(connection_send_data& in)
 
         ///this is a change: instead of waking repeatedly per write, this only wakes once even if there are multiple writes pending
         ///the underlying implementation already re-wakes, so this is a perf improvement
-        for(auto& i : in.write_queue)
+        for(auto& i : in.websocket_write_queue)
+        {
+            wake_queue.push_back(i.first);
+        }
+
+        for(auto& i : in.http_write_queue)
         {
             wake_queue.push_back(i.first);
         }
     }
 
-    in.write_queue.clear();
+    in.websocket_write_queue.clear();
+    in.http_write_queue.clear();
 }
 
 void connection::receive_bulk(connection_received_data& in)
@@ -1845,6 +1887,13 @@ void connection::receive_bulk(connection_received_data& in)
         new_http_clients.clear();
     }
 
+    for(uint64_t id : upgraded_to_websocket)
+    {
+        std::scoped_lock guard(mut);
+        conditional_erase(directed_http_write_queue, id);
+        conditional_erase(fine_http_read_queue, id);
+    }
+
     {
         {
             std::scoped_lock guard(disconnected_lock);
@@ -1857,9 +1906,11 @@ void connection::receive_bulk(connection_received_data& in)
             {
                 std::scoped_lock guard(mut);
 
-                conditional_erase(directed_write_queue, id);
+                conditional_erase(directed_websocket_write_queue, id);
+                conditional_erase(directed_http_write_queue, id);
                 conditional_erase(directed_write_lock, id);
-                conditional_erase(fine_read_queue, id);
+                conditional_erase(fine_websocket_read_queue, id);
+                conditional_erase(fine_http_read_queue, id);
                 conditional_erase(fine_read_lock, id);
             }
         }
@@ -1889,11 +1940,20 @@ void connection::receive_bulk(connection_received_data& in)
     {
         std::scoped_lock guard(mut);
 
-        for(auto& i : fine_read_queue)
+        for(auto& i : fine_websocket_read_queue)
         {
             std::lock_guard g2(fine_read_lock[i.first]);
 
-            in.read_queue[i.first] = std::move(i.second);
+            in.websocket_read_queue[i.first] = std::move(i.second);
+
+            i.second.clear();
+        }
+
+        for(auto& i : fine_http_read_queue)
+        {
+            std::lock_guard g2(fine_read_lock[i.first]);
+
+            in.http_read_queue[i.first] = std::move(i.second);
 
             i.second.clear();
         }
@@ -1913,7 +1973,7 @@ bool connection::has_read()
 {
     std::scoped_lock guard(mut);
 
-    for(auto& i : fine_read_queue)
+    for(auto& i : fine_websocket_read_queue)
     {
         std::lock_guard g2(fine_read_lock[i.first]);
 
@@ -1939,7 +1999,7 @@ write_data connection::read_from()
     std::scoped_lock guard(mut);
 
     ///check through queue, basically round robins people based on ids
-    for(auto& i : fine_read_queue)
+    for(auto& i : fine_websocket_read_queue)
     {
         if(i.first <= last_read_from)
             continue;
@@ -1955,7 +2015,7 @@ write_data connection::read_from()
 
     ///nobody suitable available, check if we have a read available from anyone at all
     ///std::map is sorted so we'll read from lowest id person in the queue
-    for(auto& i : fine_read_queue)
+    for(auto& i : fine_websocket_read_queue)
     {
         std::lock_guard g2(fine_read_lock[i.first]);
 
@@ -1977,7 +2037,7 @@ void connection::pop_read(uint64_t to_id)
     {
         std::unique_lock guard(mut);
 
-        read_ptr = &fine_read_queue[to_id];
+        read_ptr = &fine_websocket_read_queue[to_id];
         mut_ptr = &fine_read_lock[to_id];
     }
 
@@ -2018,7 +2078,7 @@ void connection::write_to(const write_data& data)
         {
             std::unique_lock guard(mut);
 
-            write_dat = &directed_write_queue[data.id];
+            write_dat = &directed_websocket_write_queue[data.id];
             write_mutex = &directed_write_lock[data.id];
         }
 
@@ -2072,9 +2132,11 @@ void connection::pop_disconnected_client()
         {
             std::scoped_lock guard(mut);
 
-            conditional_erase(directed_write_queue, id);
+            conditional_erase(directed_websocket_write_queue, id);
+            conditional_erase(directed_http_write_queue, id);
             conditional_erase(directed_write_lock, id);
-            conditional_erase(fine_read_queue, id);
+            conditional_erase(fine_websocket_read_queue, id);
+            conditional_erase(fine_http_read_queue, id);
             conditional_erase(fine_read_lock, id);
         }
 
