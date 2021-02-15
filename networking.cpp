@@ -956,6 +956,10 @@ struct http_session_data : session_data
                             std::lock_guard guard(read_mutex);
                             read_queue.push_back(ndata);
                         }
+                        else
+                        {
+                            printf("Method not supported\n");
+                        }
                     }
 
                     rbuffer.clear();
@@ -1734,6 +1738,13 @@ bool connection_send_data::write_to_http(const http_write_info& info)
     if(info.body.size() > sett.max_write_size || info.mime_type.size() > sett.max_write_size)
         return false;
 
+    http_write_queue[info.id].push_back(info);
+
+    return true;
+}
+
+bool connection_send_data::write_to_http_unchecked(const http_write_info& info)
+{
     http_write_queue[info.id].push_back(info);
 
     return true;
