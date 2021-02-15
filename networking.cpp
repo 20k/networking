@@ -367,7 +367,7 @@ struct websocket_session_data : session_data
     bool async_read = false;
     bool async_write = false;
 
-    std::vector<write_data>* write_queue_ptr = nullptr;
+    connection_queue_type<write_data>* write_queue_ptr = nullptr;
     std::mutex* write_mutex_ptr = nullptr;
 
     std::vector<write_data>* read_queue_ptr = nullptr;
@@ -543,7 +543,7 @@ struct websocket_session_data : session_data
 
         if(current_state == read_write)
         {
-            std::vector<write_data>& write_queue = *write_queue_ptr;
+            connection_queue_type<write_data>& write_queue = *write_queue_ptr;
             std::mutex& write_mutex = *write_mutex_ptr;
 
             std::vector<write_data>& read_queue = *read_queue_ptr;
@@ -589,7 +589,7 @@ struct websocket_session_data : session_data
                         wake_queue.push_back(id);
                     });
 
-                    write_queue.erase(it);
+                    write_queue.pop_front();
                     break;
                 }
             }
@@ -657,7 +657,7 @@ struct http_session_data : session_data
     bool async_read = false;
     bool async_write = false;
 
-    std::vector<http_write_info>* write_queue_ptr = nullptr;
+    connection_queue_type<http_write_info>* write_queue_ptr = nullptr;
     std::mutex* write_mutex_ptr = nullptr;
 
     std::vector<http_read_info>* read_queue_ptr = nullptr;
@@ -856,7 +856,7 @@ struct http_session_data : session_data
         {
             T& ws = stream;
 
-            std::vector<http_write_info>& write_queue = *write_queue_ptr;
+            connection_queue_type<http_write_info>& write_queue = *write_queue_ptr;
             std::mutex& write_mutex = *write_mutex_ptr;
 
             std::vector<http_read_info>& read_queue = *read_queue_ptr;
@@ -905,7 +905,7 @@ struct http_session_data : session_data
                         wake_queue.push_back(id);
                     });
 
-                    write_queue.erase(it);
+                    write_queue.pop_front();
                     break;
                 }
             }
@@ -1816,12 +1816,12 @@ void connection::send_bulk(connection_send_data& in)
     in.force_disconnection_list.clear();
 
     std::vector<std::mutex*> websocket_mutexes;
-    std::vector<std::vector<write_data>*> websocket_write_data_ptrs;
-    std::vector<const std::vector<write_data>*> websocket_read_data_ptrs;
+    std::vector<connection_queue_type<write_data>*> websocket_write_data_ptrs;
+    std::vector<const connection_queue_type<write_data>*> websocket_read_data_ptrs;
 
     std::vector<std::mutex*> http_mutexes;
-    std::vector<std::vector<http_write_info>*> http_write_data_ptrs;
-    std::vector<const std::vector<http_write_info>*> http_read_data_ptrs;
+    std::vector<connection_queue_type<http_write_info>*> http_write_data_ptrs;
+    std::vector<const connection_queue_type<http_write_info>*> http_read_data_ptrs;
 
     websocket_mutexes.reserve(in.websocket_write_queue.size());
     websocket_write_data_ptrs.reserve(in.websocket_write_queue.size());
@@ -2091,7 +2091,7 @@ void connection::write_to(const write_data& data)
         throw std::runtime_error("Exceeded max write size to client " + std::to_string(data.id) + " with size " + std::to_string(data.data.size()) + ". Max size is " + std::to_string(sett.max_write_size));
 
     {
-        std::vector<write_data>* write_dat = nullptr;
+        connection_queue_type<write_data>* write_dat = nullptr;
         std::mutex* write_mutex = nullptr;
 
         {

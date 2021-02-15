@@ -53,6 +53,9 @@ struct connection_settings
     uint64_t max_write_size = 16 * 1024 * 1024;
 };
 
+template<typename T>
+using connection_queue_type = std::deque<T>;
+
 struct http_read_info
 {
     enum method
@@ -103,8 +106,8 @@ struct connection_send_data
 
     connection_send_data(const connection_settings& _sett);
 
-    std::map<uint64_t, std::vector<write_data>> websocket_write_queue;
-    std::map<uint64_t, std::vector<http_write_info>> http_write_queue;
+    std::map<uint64_t, connection_queue_type<write_data>> websocket_write_queue;
+    std::map<uint64_t, connection_queue_type<http_write_info>> http_write_queue;
     std::set<uint64_t> force_disconnection_list;
 
     void disconnect(uint64_t id);
@@ -189,8 +192,8 @@ struct connection
     #endif
 
     std::mutex mut;
-    std::map<uint64_t, std::vector<write_data>> directed_websocket_write_queue;
-    std::map<uint64_t, std::vector<http_write_info>> directed_http_write_queue;
+    std::map<uint64_t, connection_queue_type<write_data>> directed_websocket_write_queue;
+    std::map<uint64_t, connection_queue_type<http_write_info>> directed_http_write_queue;
     std::map<uint64_t, std::mutex> directed_write_lock;
 
     //std::vector<write_data> read_queue;
