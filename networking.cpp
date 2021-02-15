@@ -873,14 +873,12 @@ struct http_session_data : session_data
                         return nullptr;
                     }
 
-                    printf("Writing\n");
-
-                    /*wbuffer.consume(wbuffer.size());
-
-                    size_t n = buffer_copy(wbuffer.prepare(next.data.size()), boost::asio::buffer(next.data));
-                    wbuffer.commit(n);*/
-
                     async_write = true;
+
+                    response_storage.body().consume(response_storage.body().size());
+                    size_t n = buffer_copy(response_storage.body().prepare(next.data.size()), boost::asio::buffer(next.data));
+                    response_storage.body().commit(n);
+                    response_storage.content_length(response_storage.body().size());
 
                     boost::beast::http::async_write(stream, response_storage, [&](boost::system::error_code ec, std::size_t)
                     {
@@ -896,21 +894,6 @@ struct http_session_data : session_data
                         async_write = false;
                         wake_queue.push_back(id);
                     });
-
-                    /*ws.async_write(wbuffer.data(), [&](boost::system::error_code ec, std::size_t)
-                    {
-                        if(ec.failed())
-                        {
-                            last_ec = ec;
-                            current_state = err;
-                            wake_queue.push_back(id);
-                            async_write = false;
-                            return;
-                        }
-
-                        async_write = false;
-                        wake_queue.push_back(id);
-                    });*/
 
                     write_queue.erase(it);
                     break;
@@ -932,12 +915,8 @@ struct http_session_data : session_data
                         return;
                     }
 
-                    printf("Read\n");
-
                     if(boost::beast::websocket::is_upgrade(parser->get()))
                     {
-                        printf("Upgrade\n");
-
                         current_state = upgrade;
 
                         ///not sure if i can clear rbuffer for parser
@@ -947,22 +926,27 @@ struct http_session_data : session_data
                     }
                     else
                     {
-                        std::string next = boost::beast::buffers_to_string(rbuffer.data());
+                        const auto& req = parser->get();
 
-                        write_data ndata;
-                        ndata.data = std::move(next);
-                        ndata.id = id;
+                        if(req.method() == boost::beast::http::verb::get)
+                        {
+                            auto boost_string_view = req.target();
 
-                        std::lock_guard guard(read_mutex);
-                        read_queue.push_back(ndata);
+                            std::string_view target(boost_string_view.data(), boost_string_view.size());
+
+                            write_data ndata;
+                            ndata.data = std::string(target);
+                            ndata.id = id;
+
+                            std::lock_guard guard(read_mutex);
+                            read_queue.push_back(ndata);
+                        }
                     }
 
                     rbuffer.clear();
 
                     async_read = false;
                     wake_queue.push_back(id);
-
-                    printf("Finished read\n");
                 });
 
                 async_read = true;
