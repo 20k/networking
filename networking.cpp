@@ -1887,7 +1887,7 @@ void connection::receive_bulk(connection_received_data& in)
         new_http_clients.clear();
     }
 
-    for(uint64_t id : upgraded_to_websocket)
+    for(uint64_t id : in.upgraded_to_websocket)
     {
         std::scoped_lock guard(mut);
         conditional_erase(directed_http_write_queue, id);
