@@ -710,38 +710,32 @@ struct http_session_data : session_data
         return current_state == upgrade;
     }
 
-    auto get_response_from_code(http_write_info::status_code code)
+    auto get_base_response(http_write_info::status_code code)
     {
-        if(code == http_write_info::status_code::ok)
-            return boost::beast::http::response<boost::beast::http::dynamic_body>{boost::beast::http::status::ok, 11};
-        if(code == http_write_info::status_code::bad_request)
-            return boost::beast::http::response<boost::beast::http::dynamic_body>{boost::beast::http::status::bad_request, 11};
-        if(code == http_write_info::status_code::not_found)
-            return boost::beast::http::response<boost::beast::http::dynamic_body>{boost::beast::http::status::not_found, 11};
-
-        return boost::beast::http::response<boost::beast::http::dynamic_body>{boost::beast::http::status::bad_request, 11};
-    }
-
-    auto get_base_response(http_write_info::status_code code, const std::string& msg)
-    {
-        /*boost::beast::http::response<boost::beast::http::file_body> res{
-            std::piecewise_construct,
-            std::make_tuple(msg),
-            std::make_tuple(boost::beast::http::status::ok, (unsigned)11)};
-        res.set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-        res.set(boost::beast::http::field::content_type, "text/plain");
-        res.content_length(msg.size());
-        res.keep_alive(false);*/
-
-        boost::beast::http::response<boost::beast::http::dynamic_body> response = get_response_from_code(code);
+        boost::beast::http::response<boost::beast::http::dynamic_body> response;
 
         response.version(11);
-        response.result(boost::beast::http::status::ok);
-        response.set(boost::beast::http::field::server, "Example");
-        response.set(boost::beast::http::field::content_type, "text/plain");
-        boost::beast::ostream(response.body()) << "Hello";
 
-        response.content_length(response.body().size());
+        if(code == http_write_info::status_code::ok)
+        {
+            response.result(boost::beast::http::status::ok);
+        }
+        else if(code == http_write_info::status_code::bad_request)
+        {
+            response.result(boost::beast::http::status::bad_request);
+        }
+        else if(code == http_write_info::status_code::not_found)
+        {
+            response.result(boost::beast::http::status::not_found);
+        }
+        else
+        {
+            response.result(boost::beast::http::status::bad_request);
+        }
+
+        response.set(boost::beast::http::field::server, "net_code_");
+        response.set(boost::beast::http::field::content_type, "text/plain");
+
         response.keep_alive(false);
 
         return response;
@@ -757,7 +751,7 @@ struct http_session_data : session_data
 
         if(current_state == err && !async_read && !async_write)
         {
-            printf("Got networking error %s with value %s:%i\n", last_ec.message().c_str(), last_ec.category().name(), last_ec.value());
+            //printf("Got networking error %s with value %s:%i\n", last_ec.message().c_str(), last_ec.category().name(), last_ec.value());
 
             current_state = terminated;
             return nullptr;
@@ -837,7 +831,7 @@ struct http_session_data : session_data
 
         if(current_state == has_handshake)
         {
-            printf("Connection %" PRIu64 " is negotiated\n", id);
+            //printf("Connection %" PRIu64 " is negotiated\n", id);
             current_state = read_write;
 
             {
@@ -887,7 +881,7 @@ struct http_session_data : session_data
 
                     async_write = true;
 
-                    response_storage = get_base_response(next.code, "none");
+                    response_storage = get_base_response(next.code);
 
                     response_storage.body().consume(response_storage.body().size());
                     size_t n = buffer_copy(response_storage.body().prepare(next.body.size()), boost::asio::buffer(next.body));
