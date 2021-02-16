@@ -886,7 +886,7 @@ struct http_session_data : session_data
 
                     response_storage.keep_alive(next.keep_alive);
 
-                    response_storage.body() = boost::beast::http::span_body<char>::value_type(next.body);
+                    response_storage.body() = boost::beast::http::span_body<char>::value_type((char*)next.body.data(), next.body.size());
                     response_storage.content_length(response_storage.body().size());
 
                     response_storage.set(boost::beast::http::field::content_type, next.mime_type);
@@ -1709,6 +1709,41 @@ void server_http_thread(connection& conn, const std::string& address, uint16_t p
 
     return std::nullopt;
 }*/
+
+http_data::http_data(std::string_view view)
+{
+    ptr = view.begin();
+    len = view.size();
+    owned = false;
+}
+
+http_data::http_data(const char* str, size_t _size)
+{
+    ptr = str;
+    len = _size;
+    owned = true;
+}
+
+http_data::~http_data()
+{
+    if(ptr == nullptr)
+        return;
+
+    if(owned)
+    {
+        delete [] ptr;
+    }
+}
+
+const char* http_data::data() const
+{
+    return ptr;
+}
+
+size_t http_data::size() const
+{
+    return len;
+}
 
 connection_send_data::connection_send_data(const connection_settings& _sett) : sett(_sett)
 {

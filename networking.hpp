@@ -69,6 +69,21 @@ struct http_read_info
     bool keep_alive = false;
 };
 
+struct http_data
+{
+    const char* ptr = nullptr;
+    size_t len = 0;
+    bool owned = false;
+
+    http_data(){}
+    http_data(std::string_view view); ///view
+    http_data(const char* data, size_t size); ///own. there is unfortunately no way to take a std::string here
+    ~http_data();
+
+    const char* data() const;
+    size_t size() const;
+};
+
 struct http_write_info
 {
     enum status_code
@@ -82,7 +97,7 @@ struct http_write_info
 
     uint64_t id;
     std::string mime_type;
-    std::string body;
+    http_data body;
     bool keep_alive = false;
 };
 
