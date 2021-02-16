@@ -115,6 +115,7 @@ struct connection_send_data
     void disconnect(uint64_t id);
     ///returns true on success
     bool write_to_websocket(const write_data& dat);
+    bool write_to_websocket(write_data&& dat);
     bool write_to_http(const http_write_info& info);
     bool write_to_http_unchecked(const http_write_info& info);
     bool write_to_http_unchecked(http_write_info&& info);

@@ -1728,6 +1728,16 @@ bool connection_send_data::write_to_websocket(const write_data& dat)
     return true;
 }
 
+bool connection_send_data::write_to_websocket(write_data&& dat)
+{
+    if(dat.data.size() > sett.max_write_size)
+        return false;
+
+    websocket_write_queue[dat.id].push_back(std::move(dat));
+
+    return true;
+}
+
 bool connection_send_data::write_to_http(const http_write_info& info)
 {
     if(info.body.size() > sett.max_write_size || info.mime_type.size() > sett.max_write_size)
