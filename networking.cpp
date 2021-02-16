@@ -680,7 +680,7 @@ struct http_session_data : session_data
 
     state current_state = start;
 
-    boost::beast::http::response<boost::beast::http::dynamic_body> response_storage;
+    boost::beast::http::response<boost::beast::http::string_body> response_storage;
 
     http_session_data(tcp::socket&& _sock, connection_settings _sett, ssl::context& ctx) requires std::is_same_v<T, boost::beast::tcp_stream> : sett(_sett), stream(std::move(_sock)) {}
     http_session_data(tcp::socket&& _sock, connection_settings _sett, ssl::context& ctx) requires std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>> : sett(_sett), stream(std::move(_sock), ctx) {}
@@ -712,7 +712,7 @@ struct http_session_data : session_data
 
     auto get_base_response(http_write_info::status_code code)
     {
-        boost::beast::http::response<boost::beast::http::dynamic_body> response;
+        boost::beast::http::response<boost::beast::http::string_body> response;
 
         response.version(11);
 
@@ -870,7 +870,7 @@ struct http_session_data : session_data
 
                 for(auto it = write_queue.begin(); it != write_queue.end();)
                 {
-                    const http_write_info& next = *it;
+                    http_write_info& next = *it;
 
                     if(next.id != id)
                     {
@@ -885,9 +885,7 @@ struct http_session_data : session_data
 
                     response_storage.keep_alive(next.keep_alive);
 
-                    response_storage.body().consume(response_storage.body().size());
-                    size_t n = buffer_copy(response_storage.body().prepare(next.body.size()), boost::asio::buffer(next.body));
-                    response_storage.body().commit(n);
+                    response_storage.body() = std::move(next.body);
                     response_storage.content_length(response_storage.body().size());
 
                     response_storage.set(boost::beast::http::field::content_type, next.mime_type);
