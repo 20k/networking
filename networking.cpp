@@ -883,6 +883,8 @@ struct http_session_data : session_data
 
                     response_storage = get_base_response(next.code);
 
+                    response_storage.keep_alive(next.keep_alive);
+
                     response_storage.body().consume(response_storage.body().size());
                     size_t n = buffer_copy(response_storage.body().prepare(next.body.size()), boost::asio::buffer(next.body));
                     response_storage.body().commit(n);
@@ -946,6 +948,7 @@ struct http_session_data : session_data
 
                             http_read_info ndata;
                             ndata.path = std::string(target);
+                            ndata.keep_alive = req.keep_alive();
 
                             std::lock_guard guard(read_mutex);
                             read_queue.push_back(ndata);

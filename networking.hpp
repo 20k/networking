@@ -66,6 +66,7 @@ struct http_read_info
     };
 
     std::string path;
+    bool keep_alive = false;
 };
 
 struct http_write_info
@@ -82,6 +83,7 @@ struct http_write_info
     uint64_t id;
     std::string mime_type;
     std::string body;
+    bool keep_alive = false;
 };
 
 struct connection_received_data
