@@ -1746,6 +1746,12 @@ bool connection_send_data::write_to_http_unchecked(const http_write_info& info)
 
     return true;
 }
+bool connection_send_data::write_to_http_unchecked(http_write_info&& info)
+{
+    http_write_queue[info.id].push_back(std::move(info));
+
+    return true;
+}
 
 bool connection::connection_pending()
 {
@@ -1805,6 +1811,17 @@ void conditional_erase(T& in, int id)
     in.erase(it);
 }
 
+template<typename T>
+void move_append(T& dest, T&& source)
+{
+    if(dest.empty())
+        dest = std::move(source);
+    else
+        dest.insert(dest.end(),
+                    std::make_move_iterator(source.begin()),
+                    std::make_move_iterator(source.end()));
+}
+
 void connection::send_bulk(connection_send_data& in)
 {
     {
@@ -1820,11 +1837,11 @@ void connection::send_bulk(connection_send_data& in)
 
     std::vector<std::mutex*> websocket_mutexes;
     std::vector<connection_queue_type<write_data>*> websocket_write_data_ptrs;
-    std::vector<const connection_queue_type<write_data>*> websocket_read_data_ptrs;
+    std::vector<connection_queue_type<write_data>*> websocket_read_data_ptrs;
 
     std::vector<std::mutex*> http_mutexes;
     std::vector<connection_queue_type<http_write_info>*> http_write_data_ptrs;
-    std::vector<const connection_queue_type<http_write_info>*> http_read_data_ptrs;
+    std::vector<connection_queue_type<http_write_info>*> http_read_data_ptrs;
 
     websocket_mutexes.reserve(in.websocket_write_queue.size());
     websocket_write_data_ptrs.reserve(in.websocket_write_queue.size());
@@ -1837,14 +1854,14 @@ void connection::send_bulk(connection_send_data& in)
     {
         std::lock_guard guard(mut);
 
-        for(const auto& i : in.websocket_write_queue)
+        for(auto& i : in.websocket_write_queue)
         {
             websocket_mutexes.push_back(&directed_write_lock[i.first]);
             websocket_write_data_ptrs.push_back(&directed_websocket_write_queue[i.first]);
             websocket_read_data_ptrs.push_back(&i.second);
         }
 
-        for(const auto& i : in.http_write_queue)
+        for(auto& i : in.http_write_queue)
         {
             http_mutexes.push_back(&directed_write_lock[i.first]);
             http_write_data_ptrs.push_back(&directed_http_write_queue[i.first]);
@@ -1857,9 +1874,9 @@ void connection::send_bulk(connection_send_data& in)
         std::lock_guard guard(*websocket_mutexes[idx]);
 
         auto& write_queue = *websocket_write_data_ptrs[idx];
-        const auto& to_append_queue = *websocket_read_data_ptrs[idx];
+        auto& to_append_queue = *websocket_read_data_ptrs[idx];
 
-        write_queue.insert(write_queue.end(), to_append_queue.begin(), to_append_queue.end());
+        move_append(write_queue, std::move(to_append_queue));
     }
 
     for(int idx = 0; idx < (int)http_mutexes.size(); idx++)
@@ -1867,9 +1884,9 @@ void connection::send_bulk(connection_send_data& in)
         std::lock_guard guard(*http_mutexes[idx]);
 
         auto& write_queue = *http_write_data_ptrs[idx];
-        const auto& to_append_queue = *http_read_data_ptrs[idx];
+        auto& to_append_queue = *http_read_data_ptrs[idx];
 
-        write_queue.insert(write_queue.end(), to_append_queue.begin(), to_append_queue.end());
+        move_append(write_queue, std::move(to_append_queue));
     }
 
     {

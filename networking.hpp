@@ -117,6 +117,7 @@ struct connection_send_data
     bool write_to_websocket(const write_data& dat);
     bool write_to_http(const http_write_info& info);
     bool write_to_http_unchecked(const http_write_info& info);
+    bool write_to_http_unchecked(http_write_info&& info);
 };
 
 ///so: Todo. I think the submitting side needs to essentially create a batch of work, that gets transferred all at once
