@@ -25,6 +25,7 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
 #include <boost/beast/http.hpp>
+#include <boost/beast/http/span_body.hpp>
 #include <boost/asio/connect.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl/stream.hpp>
@@ -680,7 +681,7 @@ struct http_session_data : session_data
 
     state current_state = start;
 
-    boost::beast::http::response<boost::beast::http::string_body> response_storage;
+    boost::beast::http::response<boost::beast::http::span_body<char>> response_storage;
 
     http_session_data(tcp::socket&& _sock, connection_settings _sett, ssl::context& ctx) requires std::is_same_v<T, boost::beast::tcp_stream> : sett(_sett), stream(std::move(_sock)) {}
     http_session_data(tcp::socket&& _sock, connection_settings _sett, ssl::context& ctx) requires std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>> : sett(_sett), stream(std::move(_sock), ctx) {}
@@ -712,7 +713,7 @@ struct http_session_data : session_data
 
     auto get_base_response(http_write_info::status_code code)
     {
-        boost::beast::http::response<boost::beast::http::string_body> response;
+        boost::beast::http::response<boost::beast::http::span_body<char>> response;
 
         response.version(11);
 
@@ -885,13 +886,15 @@ struct http_session_data : session_data
 
                     response_storage.keep_alive(next.keep_alive);
 
-                    response_storage.body() = std::move(next.body);
+                    response_storage.body() = boost::beast::http::span_body<char>::value_type(next.body);
                     response_storage.content_length(response_storage.body().size());
 
                     response_storage.set(boost::beast::http::field::content_type, next.mime_type);
 
                     boost::beast::http::async_write(stream, response_storage, [&](boost::system::error_code ec, std::size_t)
                     {
+                        write_queue.pop_front();
+
                         if(ec.failed())
                         {
                             last_ec = ec;
@@ -905,7 +908,6 @@ struct http_session_data : session_data
                         wake_queue.push_back(id);
                     });
 
-                    write_queue.pop_front();
                     break;
                 }
             }
