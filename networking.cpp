@@ -615,7 +615,7 @@ struct websocket_session_data : session_data
                         ndata.id = id;
 
                         std::lock_guard guard(read_mutex);
-                        read_queue.push_back(ndata);
+                        read_queue.push_back(std::move(ndata));
                     }
 
                     rbuffer.clear();
@@ -949,7 +949,7 @@ struct http_session_data : session_data
                             ndata.keep_alive = req.keep_alive();
 
                             std::lock_guard guard(read_mutex);
-                            read_queue.push_back(ndata);
+                            read_queue.push_back(std::move(ndata));
                         }
                         else
                         {
