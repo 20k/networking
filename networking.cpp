@@ -371,8 +371,8 @@ struct session_data
     virtual session_data* tick(connection& conn, std::vector<uint64_t>& wake_queue,
                                std::map<uint64_t, connection_queue_type<write_data>>& websocket_write_queue,
                                std::map<uint64_t, connection_queue_type<http_write_info>>& http_write_queue,
-                               std::map<uint64_t, std::vector<write_data>> websocket_read_queue,
-                               std::map<uint64_t, std::vector<http_read_info>> http_read_queue) {return nullptr;}
+                               std::map<uint64_t, std::vector<write_data>>& websocket_read_queue,
+                               std::map<uint64_t, std::vector<http_read_info>>& http_read_queue) {return nullptr;}
     virtual bool perform_upgrade(){return false;}
 
     virtual ~session_data(){}
@@ -492,8 +492,8 @@ struct websocket_session_data : session_data
     virtual session_data* tick(connection& conn, std::vector<uint64_t>& wake_queue,
                                std::map<uint64_t, connection_queue_type<write_data>>& websocket_write_queue,
                                std::map<uint64_t, connection_queue_type<http_write_info>>& http_write_queue,
-                               std::map<uint64_t, std::vector<write_data>> websocket_read_queue,
-                               std::map<uint64_t, std::vector<http_read_info>> http_read_queue) override
+                               std::map<uint64_t, std::vector<write_data>>& websocket_read_queue,
+                               std::map<uint64_t, std::vector<http_read_info>>& http_read_queue) override
     {
         if(current_state == blocked)
             return nullptr;
@@ -564,17 +564,14 @@ struct websocket_session_data : session_data
 
         if(current_state == read_write)
         {
-            connection_queue_type<write_data>& write_queue = *write_queue_ptr;
-            std::vector<write_data>& read_queue = *read_queue_ptr;
-
             ///so, theoretically if we don't have any writes, according to this state machine, we'll never wake up if a read doesn't hit us
             ///the server is responsible for fixing this
             if(!async_write)
             {
+                connection_queue_type<write_data>& write_queue = *write_queue_ptr;
+
                 for(auto it = write_queue.begin(); it != write_queue.end();)
                 {
-                    std::cout << "has write\n";
-
                     const write_data& next = *it;
 
                     if(next.id != id)
@@ -614,10 +611,10 @@ struct websocket_session_data : session_data
 
             if(!async_read)
             {
+                std::vector<write_data>& read_queue = *read_queue_ptr;
+
                 ws.async_read(rbuffer, [&](boost::system::error_code ec, std::size_t)
                 {
-                    std::cout << "has read\n";
-
                     if(ec.failed())
                     {
                         last_ec = ec;
@@ -760,8 +757,8 @@ struct http_session_data : session_data
     virtual session_data* tick(connection& conn, std::vector<uint64_t>& wake_queue,
                                std::map<uint64_t, connection_queue_type<write_data>>& websocket_write_queue,
                                std::map<uint64_t, connection_queue_type<http_write_info>>& http_write_queue,
-                               std::map<uint64_t, std::vector<write_data>> websocket_read_queue,
-                               std::map<uint64_t, std::vector<http_read_info>> http_read_queue) override
+                               std::map<uint64_t, std::vector<write_data>>& websocket_read_queue,
+                               std::map<uint64_t, std::vector<http_read_info>>& http_read_queue) override
     {
         if(current_state == blocked)
             return nullptr;
@@ -1955,6 +1952,9 @@ void connection::receive_bulk(connection_received_data& in)
 
         in.websocket_read_queue = std::move(pending_websocket_read_queue);
         in.http_read_queue = std::move(pending_http_read_queue);
+
+        pending_websocket_read_queue.clear();
+        pending_http_read_queue.clear();
     }
 }
 
