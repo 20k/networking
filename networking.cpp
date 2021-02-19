@@ -1349,10 +1349,7 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
                     std::lock_guard guard(conn.fat_readwrite_mutex);
 
                     move_append(write_queue, std::move(conn.pending_websocket_write_queue[-1]));
-                    move_append(conn.pending_websocket_read_queue[-1], std::move(read_queue));
-
                     conn.pending_websocket_write_queue.clear();
-                    read_queue.clear();
                 }
 
                 if(!async_write)
@@ -1417,6 +1414,13 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
             {
                 ioc.poll();
                 ioc.restart();
+            }
+
+            {
+                std::lock_guard guard(conn.fat_readwrite_mutex);
+
+                move_append(conn.pending_websocket_read_queue[-1], std::move(read_queue));
+                read_queue.clear();
             }
 
             if(should_continue)
