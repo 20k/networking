@@ -146,80 +146,21 @@ struct connection
     void send_bulk(connection_send_data& in);
     void receive_bulk(connection_received_data& in);
 
-    [[deprecated]]
-    std::optional<uint64_t> has_new_client();
-    [[deprecated]]
-    void pop_new_client();
-
-    [[deprecated]]
-    std::optional<uint64_t> has_disconnected_client();
-    [[deprecated]]
-    void pop_disconnected_client();
-
     size_t last_read_from = -1;
 
     bool connection_pending();
 
-    [[deprecated]]
-    bool has_read();
-    [[deprecated]]
-    write_data read_from();
-    [[deprecated]]
-    void pop_read(uint64_t id);
-
-    [[deprecated]]
-    void force_disconnect(uint64_t id) noexcept;
-
     void set_client_sleep_interval(uint64_t time_ms);
 
-    #ifndef NO_SERIALISATION
-    template<typename T>
-    [[deprecated]]
-    uint64_t reads_from(T& old)
-    {
-        write_data data = read_from();
-
-        nlohmann::json nl = nlohmann::json::from_cbor(data.data);
-
-        deserialise<T>(nl, old);
-
-        return data.id;
-    }
-    #endif
-
-    [[deprecated]]
-    void write_to(const write_data& data);
-    [[deprecated]]
-    void write(const std::string& data);
-
-    #ifndef NO_SERIALISATION
-    template<typename T>
-    [[deprecated]]
-    void writes_to(T& data, uint64_t to_id)
-    {
-        nlohmann::json ret = serialise(data);
-
-        std::vector<uint8_t> cb = nlohmann::json::to_cbor(ret);
-
-        write_data dat;
-        dat.id = to_id;
-        dat.data = std::string(cb.begin(), cb.end());
-        //dat.data = ret.dump();
-
-        write_to(dat);
-    }
-    #endif
-
     std::mutex mut;
-    std::map<uint64_t, connection_queue_type<write_data>> directed_websocket_write_queue;
-    std::map<uint64_t, connection_queue_type<http_write_info>> directed_http_write_queue;
-    std::map<uint64_t, std::mutex> directed_write_lock;
 
-    //std::vector<write_data> read_queue;
+    ///fat because it protects everything read and write related
+    std::mutex fat_readwrite_mutex;
+    std::map<uint64_t, connection_queue_type<write_data>> pending_websocket_write_queue;
+    std::map<uint64_t, connection_queue_type<http_write_info>> pending_http_write_queue;
 
-    std::map<uint64_t, std::vector<write_data>> fine_websocket_read_queue;
-    std::map<uint64_t, std::vector<http_read_info>> fine_http_read_queue;
-    std::map<uint64_t, std::mutex> fine_read_lock;
+    std::map<uint64_t, std::vector<write_data>> pending_websocket_read_queue;
+    std::map<uint64_t, std::vector<http_read_info>> pending_http_read_queue;
 
     std::mutex wake_lock;
     std::vector<uint64_t> wake_queue;
@@ -265,6 +206,7 @@ namespace network_mode
 }
 
 #ifndef NO_SERIALISATION
+#if 0
 struct network_protocol : serialisable
 {
     network_mode::type type = network_mode::COUNT;
@@ -329,6 +271,7 @@ struct network_data_model
         }
     }
 };
+#endif // 0
 #endif
 
 #endif // NETWORKING_HPP_INCLUDED
