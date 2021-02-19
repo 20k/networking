@@ -1317,7 +1317,6 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
 
         ws.handshake(address, "/");
 
-
         boost::beast::multi_buffer rbuffer;
         boost::beast::multi_buffer wbuffer;
 
@@ -1326,18 +1325,8 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
 
         bool should_continue = false;
 
-        std::vector<write_data>* write_queue_ptr = nullptr;
-        std::vector<write_data>* read_queue_ptr = nullptr;
-
-        {
-            std::unique_lock guard(conn.fat_readwrite_mutex);
-
-            write_queue_ptr = &conn.pending_websocket_write_queue[-1];
-            read_queue_ptr = &conn.pending_websocket_read_queue[-1];
-        }
-
-        std::vector<write_data>& write_queue = *write_queue_ptr;
-        std::vector<write_data>& read_queue = *read_queue_ptr;
+        connection_queue_type<write_data> write_queue;
+        std::vector<write_data> read_queue;
 
         conn.client_connected_to_server = 1;
         conn.connection_in_progress = false;
@@ -1351,10 +1340,18 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
 
             try
             {
-                if(!async_write)
                 {
                     std::lock_guard guard(conn.fat_readwrite_mutex);
 
+                    move_append(write_queue, std::move(conn.pending_websocket_write_queue[-1]));
+                    move_append(conn.pending_websocket_read_queue[-1], std::move(read_queue));
+
+                    conn.pending_websocket_write_queue.clear();
+                    read_queue.clear();
+                }
+
+                if(!async_write)
+                {
                     while(write_queue.size() > 0)
                     {
                         const write_data& next = write_queue.front();
@@ -1367,13 +1364,13 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
                         write_queue.erase(write_queue.begin());
 
                         ws.async_write(wbuffer.data(), [&](boost::system::error_code ec, std::size_t)
-                                       {
-                                            if(ec.failed())
-                                                throw std::runtime_error("Write err\n");
+                        {
+                            if(ec.failed())
+                                throw std::runtime_error("Write err\n");
 
-                                            async_write = false;
-                                            should_continue = true;
-                                       });
+                            async_write = false;
+                            should_continue = true;
+                        });
 
                         async_write = true;
                         should_continue = true;
@@ -1384,25 +1381,23 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
                 if(!async_read)
                 {
                     ws.async_read(rbuffer, [&](boost::system::error_code ec, std::size_t)
-                                  {
-                                      if(ec.failed())
-                                          throw std::runtime_error("Read err\n");
+                    {
+                        if(ec.failed())
+                            throw std::runtime_error("Read err\n");
 
-                                      std::string next = boost::beast::buffers_to_string(rbuffer.data());
+                        std::string next = boost::beast::buffers_to_string(rbuffer.data());
 
-                                      std::lock_guard guard(conn.fat_readwrite_mutex);
+                        write_data ndata;
+                        ndata.data = std::move(next);
+                        ndata.id = -1;
 
-                                      write_data ndata;
-                                      ndata.data = std::move(next);
-                                      ndata.id = -1;
+                        read_queue.push_back(ndata);
 
-                                      read_queue.push_back(ndata);
+                        rbuffer.clear();
 
-                                      rbuffer.clear();
-
-                                      async_read = false;
-                                      should_continue = true;
-                                  });
+                        async_read = false;
+                        should_continue = true;
+                    });
 
                     async_read = true;
                     should_continue = true;
