@@ -40,14 +40,10 @@
 #include <vector>
 #include <SFML/System/Sleep.hpp>
 #include <fstream>
-
-using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
-namespace websocket = boost::beast::websocket;  // from <boost/beast/websocket.hpp>
-namespace ssl = boost::asio::ssl;               // from <boost/asio/ssl.hpp>
+#endif // __EMSCRIPTEN__
 
 namespace
 {
-
 template<typename T>
 inline
 void conditional_erase(T& in, int id)
@@ -70,6 +66,15 @@ void move_append(T& dest, T&& source)
                     std::make_move_iterator(source.begin()),
                     std::make_move_iterator(source.end()));
 }
+}
+
+#ifndef __EMSCRIPTEN__
+using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
+namespace websocket = boost::beast::websocket;  // from <boost/beast/websocket.hpp>
+namespace ssl = boost::asio::ssl;               // from <boost/asio/ssl.hpp>
+
+namespace
+{
 
 std::string read_file_bin(const std::string& file)
 {
@@ -1490,14 +1495,12 @@ bool sock_writable(int fd, long seconds = 0, long milliseconds = 0)
 }
 
 std::optional<std::string> tick_tcp_sender(int sock,
-                                           std::vector<write_data>& write_queue, std::mutex& write_mutex,
-                                           std::vector<write_data>& read_queue, std::mutex& read_mutex,
+                                           connection_queue_type<write_data>& write_queue,
+                                           std::vector<write_data>& read_queue,
                                            int MAXDATASIZE,
                                            char buf[])
 {
     {
-        std::lock_guard guard(write_mutex);
-
         while(write_queue.size() > 0 && sock_writable(sock))
         {
             write_data& next = write_queue.front();
@@ -1534,8 +1537,6 @@ std::optional<std::string> tick_tcp_sender(int sock,
             buf[num] = '\0';
 
             std::string ret(buf, buf + num);
-
-            std::lock_guard guard(read_mutex);
 
             write_data ndata;
             ndata.data = std::move(ret);
@@ -1625,39 +1626,34 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
 
         printf("Fin\n");
 
-        std::vector<write_data>* write_queue_ptr = nullptr;
-        std::mutex* write_mutex_ptr = nullptr;
-
-        std::vector<write_data>* read_queue_ptr = nullptr;
-        std::mutex* read_mutex_ptr = nullptr;
-
-        {
-            std::unique_lock guard(conn.mut);
-
-            write_queue_ptr = &conn.directed_websocket_write_queue[-1];
-            write_mutex_ptr = &conn.directed_write_lock[-1];
-
-            read_queue_ptr = &conn.fine_websocket_read_queue[-1];
-            read_mutex_ptr = &conn.fine_read_lock[-1];
-        }
-
-        std::vector<write_data>& write_queue = *write_queue_ptr;
-        std::mutex& write_mutex = *write_mutex_ptr;
-
-        std::vector<write_data>& read_queue = *read_queue_ptr;
-        std::mutex& read_mutex = *read_mutex_ptr;
+        connection_queue_type<write_data> write_queue;
+        std::vector<write_data> read_queue;
 
         constexpr int MAXDATASIZE = 100000;
         char buf[MAXDATASIZE] = {};
 
         while(1)
         {
-            auto error_opt = tick_tcp_sender(sock, write_queue, write_mutex, read_queue, read_mutex, MAXDATASIZE, buf);
+            {
+                std::lock_guard guard(conn.fat_readwrite_mutex);
+
+                move_append(write_queue, std::move(conn.pending_websocket_write_queue[-1]));
+                conn.pending_websocket_write_queue.clear();
+            }
+
+            auto error_opt = tick_tcp_sender(sock, write_queue, read_queue, MAXDATASIZE, buf);
 
             if(error_opt.has_value())
             {
                 std::cout << "Exception in tcp send " << error_opt.value() << std::endl;
                 break;
+            }
+
+            {
+                std::lock_guard guard(conn.fat_readwrite_mutex);
+
+                move_append(conn.pending_websocket_read_queue[-1], std::move(read_queue));
+                read_queue.clear();
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(8));
@@ -1675,19 +1671,9 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
         close(sock);
 
     {
-        std::unique_lock guard(conn.mut);
-
-        {
-            std::lock_guard g2(conn.directed_write_lock[-1]);
-
-            conn.directed_websocket_write_queue.clear();
-        }
-
-        {
-            std::lock_guard g3(conn.fine_read_lock[-1]);
-
-            conn.fine_websocket_read_queue.clear();
-        }
+        std::unique_lock guard(conn.fat_readwrite_mutex);
+        conn.pending_websocket_write_queue.clear();
+        conn.pending_websocket_read_queue.clear();
     }
 
     conn.client_connected_to_server = 0;
