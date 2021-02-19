@@ -994,6 +994,7 @@ struct acceptor_data
     boost::asio::io_context acceptor_context{1};
     tcp::acceptor acceptor;
     tcp::socket next_socket;
+    std::optional<tcp::socket> to_get;
 
     bool async_in_flight = false;
 
@@ -1026,8 +1027,6 @@ struct acceptor_data
 
     std::optional<tcp::socket> get_next_socket()
     {
-        std::optional<tcp::socket> ret;
-
         if(!async_in_flight)
         {
             async_in_flight = true;
@@ -1040,7 +1039,7 @@ struct acceptor_data
                 }
                 else
                 {
-                    ret = std::move(next_socket);
+                    to_get = std::move(next_socket);
                 }
 
                 next_socket = tcp::socket{acceptor_context};
@@ -1048,12 +1047,24 @@ struct acceptor_data
             });
         }
 
+        if(to_get.has_value())
+        {
+            auto value_opt = std::move(to_get.value());
+            to_get = std::nullopt;
+
+            return value_opt;
+
+        }
+
+        return std::nullopt;
+    }
+
+    void poll()
+    {
         acceptor_context.poll();
 
         if(acceptor_context.stopped())
             acceptor_context.restart();
-
-        return ret;
     }
 };
 
@@ -1123,20 +1134,6 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
             for(auto& i : conn.pending_http_write_queue)
             {
                 move_append(http_write_queue[i.first], std::move(i.second));
-            }
-
-            for(auto& i : websocket_read_queue)
-            {
-                move_append(conn.pending_websocket_read_queue[i.first], std::move(i.second));
-
-                i.second.clear();
-            }
-
-            for(auto& i : http_read_queue)
-            {
-                move_append(conn.pending_http_read_queue[i.first], std::move(i.second));
-
-                i.second.clear();
             }
 
             conn.pending_websocket_write_queue.clear();
@@ -1241,6 +1238,26 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                         }
                     }
                 }
+            }
+        }
+
+        acceptor_ctx.poll();
+
+        {
+            std::lock_guard guard(conn.fat_readwrite_mutex);
+
+            for(auto& i : websocket_read_queue)
+            {
+                move_append(conn.pending_websocket_read_queue[i.first], std::move(i.second));
+
+                i.second.clear();
+            }
+
+            for(auto& i : http_read_queue)
+            {
+                move_append(conn.pending_http_read_queue[i.first], std::move(i.second));
+
+                i.second.clear();
             }
         }
 
