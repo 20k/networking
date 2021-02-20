@@ -188,10 +188,10 @@ struct connection
 
     const connection_settings& get_settings(){return sett;}
 
+    std::atomic_int client_sleep_interval_ms = 1;
 private:
     bool is_client = true;
     bool is_connected = false;
-    int client_sleep_interval_ms = 1;
     connection_settings sett;
 };
 

@@ -1270,7 +1270,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
 #endif // ASYNC_THREAD
 
 template<typename T>
-void client_thread(connection& conn, std::string address, uint16_t port, std::string sni_hostname, uint64_t client_sleep_time_ms)
+void client_thread(connection& conn, std::string address, uint16_t port, std::string sni_hostname)
 {
     T* wps = nullptr;
     boost::asio::io_context ioc;
@@ -1446,7 +1446,7 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
                 continue;
             }
 
-            sf::sleep(sf::milliseconds(client_sleep_time_ms));
+            sf::sleep(sf::milliseconds(conn.client_sleep_interval_ms));
 
             if(conn.should_terminate)
                 break;
@@ -1677,7 +1677,7 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
                 read_queue.clear();
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(8));
+            std::this_thread::sleep_for(std::chrono::milliseconds(conn.client_sleep_interval_ms));
         }
 
     }
@@ -1784,6 +1784,7 @@ bool connection_send_data::write_to_http_unchecked(const http_write_info& info)
 
     return true;
 }
+
 bool connection_send_data::write_to_http_unchecked(http_write_info&& info)
 {
     http_write_queue[info.id].push_back(std::move(info));
@@ -1822,11 +1823,11 @@ void connection::connect(const std::string& address, uint16_t port, connection_t
     #ifndef __EMSCRIPTEN__
     #ifdef SUPPORT_NO_SSL_CLIENT
     if(type == connection_type::PLAIN)
-        thrd.emplace_back(client_thread<websocket::stream<tcp::socket>>, std::ref(*this), address, port, sni_hostname, client_sleep_interval_ms);
+        thrd.emplace_back(client_thread<websocket::stream<tcp::socket>>, std::ref(*this), address, port, sni_hostname);
     #endif // SUPPORT_NO_SSL_CLIENT
 
     if(type == connection_type::SSL)
-        thrd.emplace_back(client_thread<websocket::stream<ssl::stream<tcp::socket>>>, std::ref(*this), address, port, sni_hostname, client_sleep_interval_ms);
+        thrd.emplace_back(client_thread<websocket::stream<ssl::stream<tcp::socket>>>, std::ref(*this), address, port, sni_hostname);
     #else
     ///-s WEBSOCKET_URL=wss://
     if(type != connection_type::EMSCRIPTEN_AUTOMATIC)
