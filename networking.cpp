@@ -1117,6 +1117,8 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
             //websocket_session_data<T>* dat = new websocket_session_data<T>(std::move(sock_opt.value()), sett);
 
             all_session_data[id] = dat;
+            websocket_write_queue[id].clear();
+            http_write_queue[id].clear();
 
             dat->id = id;
 
