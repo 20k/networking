@@ -18,6 +18,8 @@
 #include <msgpack.h>
 #endif // USE_MSGPACK
 
+#include <optional>
+
 ///its going to be this kind of file
 ///if this makes you sad its not getting any better from here
 
