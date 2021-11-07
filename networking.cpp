@@ -24,6 +24,8 @@
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
+#include <boost/beast/http.hpp>
+#include <boost/beast/http/span_body.hpp>
 #include <boost/asio/connect.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl/stream.hpp>
@@ -38,7 +40,35 @@
 #include <vector>
 #include <SFML/System/Sleep.hpp>
 #include <fstream>
+#endif // __EMSCRIPTEN__
 
+namespace
+{
+template<typename T>
+inline
+void conditional_erase(T& in, int id)
+{
+    auto it = in.find(id);
+
+    if(it == in.end())
+        return;
+
+    in.erase(it);
+}
+
+template<typename T>
+void move_append(T& dest, T&& source)
+{
+    if(dest.empty())
+        dest = std::move(source);
+    else
+        dest.insert(dest.end(),
+                    std::make_move_iterator(source.begin()),
+                    std::make_move_iterator(source.end()));
+}
+}
+
+#ifndef __EMSCRIPTEN__
 using tcp = boost::asio::ip::tcp;               // from <boost/asio/ip/tcp.hpp>
 namespace websocket = boost::beast::websocket;  // from <boost/beast/websocket.hpp>
 namespace ssl = boost::asio::ssl;               // from <boost/asio/ssl.hpp>
@@ -134,10 +164,10 @@ void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp:
         {
             std::unique_lock guard(conn.mut);
 
-            write_queue_ptr = &conn.directed_write_queue[id];
+            write_queue_ptr = &conn.directed_websocket_write_queue[id];
             write_mutex_ptr = &conn.directed_write_lock[id];
 
-            read_queue_ptr = &conn.fine_read_queue[id];
+            read_queue_ptr = &conn.fine_websocket_read_queue[id];
             read_mutex_ptr = &conn.fine_read_lock[id];
         }
 
@@ -335,16 +365,34 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 #define ASYNC_THREAD
 #ifdef ASYNC_THREAD
 
-template<typename T>
 struct session_data
 {
-    T* wps = nullptr;
+    //session_data(tcp::socket&& _sock, connection_settings _sett) : socket(std::move(_sock)), sett(_sett){}
+
+    virtual bool can_terminate(){return false;}
+    virtual bool has_terminated(){return false;}
+    virtual bool has_errored(){return false;}
+    virtual void terminate(){}
+    virtual session_data* tick(connection& conn, std::vector<uint64_t>& wake_queue,
+                               std::map<uint64_t, connection_queue_type<write_data>>& websocket_write_queue,
+                               std::map<uint64_t, connection_queue_type<http_write_info>>& http_write_queue,
+                               std::map<uint64_t, std::vector<write_data>>& websocket_read_queue,
+                               std::map<uint64_t, std::vector<http_read_info>>& http_read_queue) {return nullptr;}
+    virtual bool perform_upgrade(){return false;}
+
+    virtual ~session_data(){}
+};
+
+template<typename T>
+struct websocket_session_data : session_data
+{
     uint64_t id = -1;
-    tcp::socket socket;
+    //tcp::socket socket;
+    connection_settings sett;
+    websocket::stream<T> ws;
+
     bool can_cancel = false;
     bool has_cancelled = false;
-    ssl::context* ctx = nullptr;
-    connection_settings sett;
 
     boost::beast::flat_buffer rbuffer;
     boost::beast::flat_buffer wbuffer;
@@ -352,18 +400,14 @@ struct session_data
     bool async_read = false;
     bool async_write = false;
 
-    std::vector<write_data>* write_queue_ptr = nullptr;
-    std::mutex* write_mutex_ptr = nullptr;
-
+    connection_queue_type<write_data>* write_queue_ptr = nullptr;
     std::vector<write_data>* read_queue_ptr = nullptr;
-    std::mutex* read_mutex_ptr = nullptr;
 
     boost::system::error_code last_ec{};
 
     enum state
     {
         start,
-        has_handshake,
         has_accept,
         read_write,
         blocked,
@@ -373,28 +417,101 @@ struct session_data
 
     state current_state = start;
 
-    session_data(tcp::socket&& _sock, connection_settings _sett) : socket(std::move(_sock)), sett(_sett){}
+    websocket_session_data(T&& _stream, connection_settings _sett) : sett(_sett), ws(std::move(_stream))
+    {
 
-    void tick(connection& conn, std::vector<uint64_t>& wake_queue)
+    }
+
+    virtual bool can_terminate() override
+    {
+        return current_state != state::err && current_state != state::terminated;
+    }
+
+    virtual bool has_terminated() override
+    {
+        return current_state == state::terminated;
+    }
+
+    virtual bool has_errored() override
+    {
+        return current_state == state::err;
+    }
+
+    virtual void terminate() override
+    {
+        current_state = err;
+    }
+
+    void create_stream()
+    {
+        ws.text(false);
+        ws.write_buffer_bytes(8192);
+        ws.read_message_max(sett.max_read_size);
+
+        ws.set_option(websocket::stream_base::decorator(
+        [](websocket::response_type& res)
+        {
+            res.insert(boost::beast::http::field::sec_websocket_protocol, "binary");
+        }));
+
+        if(sett.enable_compression)
+        {
+            boost::beast::websocket::permessage_deflate opt;
+            ///enabling deflate causes server memory usage to climb extremely high
+            ///todo tomorrow: check if this is a real memory leak
+            opt.server_enable = true;
+            opt.client_enable = true;
+            opt.server_max_window_bits = sett.max_window_bits;
+            opt.memLevel = sett.memory_level;
+            opt.compLevel = sett.compression_level;
+
+            ws.set_option(opt);
+        }
+    }
+
+    template<typename U>
+    void perform_upgrade_from_accept(U req, std::vector<uint64_t>& wake_queue)
+    {
+        create_stream();
+
+        can_cancel = true;
+        current_state = blocked;
+
+        ws.async_accept(req,
+        [&](auto ec)
+        {
+            if(ec)
+            {
+                last_ec = ec;
+                current_state = err;
+                wake_queue.push_back(id);
+                return;
+            }
+
+            current_state = has_accept;
+
+            wake_queue.push_back(id);
+        });
+    }
+
+    virtual session_data* tick(connection& conn, std::vector<uint64_t>& wake_queue,
+                               std::map<uint64_t, connection_queue_type<write_data>>& websocket_write_queue,
+                               std::map<uint64_t, connection_queue_type<http_write_info>>& http_write_queue,
+                               std::map<uint64_t, std::vector<write_data>>& websocket_read_queue,
+                               std::map<uint64_t, std::vector<http_read_info>>& http_read_queue) override
     {
         if(current_state == blocked)
-            return;
+            return nullptr;
 
         if(current_state == terminated)
-            return;
+            return nullptr;
 
         if(current_state == err && !async_read && !async_write)
         {
-            if(wps)
-            {
-                delete wps;
-                wps = nullptr;
-            }
-
-            printf("Got networking error %s with value %s:%i\n", last_ec.message().c_str(), last_ec.category().name(), last_ec.value());
+            printf("Got networking websockets error %s with value %s:%i\n", last_ec.message().c_str(), last_ec.category().name(), last_ec.value());
 
             current_state = terminated;
-            return;
+            return nullptr;
         }
 
         ///the callbacks for both async_write and async_read both cause this to wake
@@ -403,86 +520,21 @@ struct session_data
             if(can_cancel && !has_cancelled)
             {
                 boost::system::error_code ec;
-                boost::beast::get_lowest_layer(*wps).socket().cancel(ec);
+                boost::beast::get_lowest_layer(ws).socket().cancel(ec);
                 has_cancelled = true;
             }
 
-            return;
+            return nullptr;
         }
 
     try
     {
         if(current_state == start)
         {
-            current_state = blocked;
-            boost::asio::ip::tcp::no_delay nagle(true);
-
-            if constexpr(std::is_same_v<T, websocket::stream<boost::beast::tcp_stream>>)
-            {
-                wps = new T{std::move(socket)};
-                wps->text(false);
-                wps->write_buffer_bytes(8192);
-                wps->read_message_max(sett.max_read_size);
-
-                wps->next_layer().socket().set_option(nagle);
-                current_state = has_handshake;
-                ///don't need to awake, as we didn't sleep
-            }
-
-            if constexpr(std::is_same_v<T, websocket::stream<ssl::stream<boost::beast::tcp_stream>>>)
-            {
-                wps = new T{std::move(socket), *ctx};
-                wps->text(false);
-                wps->write_buffer_bytes(8192);
-                wps->read_message_max(sett.max_read_size);
-
-                wps->next_layer().next_layer().socket().set_option(nagle);
-
-                wps->next_layer().async_handshake(ssl::stream_base::server, [&](auto ec)
-                {
-                    if(ec)
-                    {
-                        last_ec = ec;
-                        current_state = err;
-                    }
-                    else
-                    {
-                        current_state = has_handshake;
-                    }
-
-                    wake_queue.push_back(id);
-                });
-            }
+            create_stream();
 
             can_cancel = true;
-        }
-
-        if(current_state == has_handshake)
-        {
             current_state = blocked;
-            assert(wps != nullptr);
-
-            T& ws = *wps;
-
-            ws.set_option(websocket::stream_base::decorator(
-            [](websocket::response_type& res)
-            {
-                res.insert(boost::beast::http::field::sec_websocket_protocol, "binary");
-            }));
-
-            if(sett.enable_compression)
-            {
-                boost::beast::websocket::permessage_deflate opt;
-                ///enabling deflate causes server memory usage to climb extremely high
-                ///todo tomorrow: check if this is a real memory leak
-                opt.server_enable = true;
-                opt.client_enable = true;
-                opt.server_max_window_bits = sett.max_window_bits;
-                opt.memLevel = sett.memory_level;
-                opt.compLevel = sett.compression_level;
-
-                ws.set_option(opt);
-            }
 
             ws.async_accept([&](auto ec)
             {
@@ -505,19 +557,11 @@ struct session_data
             printf("Connection %" PRIu64 " is negotiated\n", id);
             current_state = read_write;
 
-            {
-                std::unique_lock guard(conn.mut);
-
-                write_queue_ptr = &conn.directed_write_queue[id];
-                write_mutex_ptr = &conn.directed_write_lock[id];
-
-                read_queue_ptr = &conn.fine_read_queue[id];
-                read_mutex_ptr = &conn.fine_read_lock[id];
-            }
+            write_queue_ptr = &websocket_write_queue[id];
+            read_queue_ptr = &websocket_read_queue[id];
 
             {
                 std::unique_lock guard(conn.mut);
-
                 conn.new_clients.push_back(id);
             }
             ///no need to wake
@@ -525,19 +569,11 @@ struct session_data
 
         if(current_state == read_write)
         {
-            T& ws = *wps;
-
-            std::vector<write_data>& write_queue = *write_queue_ptr;
-            std::mutex& write_mutex = *write_mutex_ptr;
-
-            std::vector<write_data>& read_queue = *read_queue_ptr;
-            std::mutex& read_mutex = *read_mutex_ptr;
-
             ///so, theoretically if we don't have any writes, according to this state machine, we'll never wake up if a read doesn't hit us
             ///the server is responsible for fixing this
             if(!async_write)
             {
-                std::lock_guard guard(write_mutex);
+                connection_queue_type<write_data>& write_queue = *write_queue_ptr;
 
                 for(auto it = write_queue.begin(); it != write_queue.end();)
                 {
@@ -547,7 +583,7 @@ struct session_data
                     {
                         current_state = err;
                         wake_queue.push_back(id);
-                        return;
+                        return nullptr;
                     }
 
 
@@ -573,13 +609,15 @@ struct session_data
                         wake_queue.push_back(id);
                     });
 
-                    write_queue.erase(it);
+                    write_queue.pop_front();
                     break;
                 }
             }
 
             if(!async_read)
             {
+                std::vector<write_data>& read_queue = *read_queue_ptr;
+
                 ws.async_read(rbuffer, [&](boost::system::error_code ec, std::size_t)
                 {
                     if(ec.failed())
@@ -598,8 +636,7 @@ struct session_data
                         ndata.data = std::move(next);
                         ndata.id = id;
 
-                        std::lock_guard guard(read_mutex);
-                        read_queue.push_back(ndata);
+                        read_queue.push_back(std::move(ndata));
                     }
 
                     rbuffer.clear();
@@ -619,56 +656,377 @@ struct session_data
         current_state = err;
         wake_queue.push_back(id);
     }
+
+        return nullptr;
     }
 };
 
 template<typename T>
-void server_thread(connection& conn, std::string saddress, uint16_t port, connection_settings sett)
+struct http_session_data : session_data
 {
-    auto const address = boost::asio::ip::make_address(saddress);
+    uint64_t id = -1;
+    connection_settings sett;
 
-    std::atomic_bool accepted = true;
-    boost::asio::io_context acceptor_context{1};
+    T stream;
 
-    tcp::acceptor acceptor{acceptor_context, {address, port}};
-    acceptor.set_option(boost::asio::socket_base::reuse_address(true));
+    bool can_cancel = false;
+    bool has_cancelled = false;
 
+    boost::beast::flat_buffer rbuffer;
+    boost::beast::flat_buffer wbuffer;
+
+    bool async_read = false;
+    bool async_write = false;
+
+    connection_queue_type<http_write_info>* write_queue_ptr = nullptr;
+    std::vector<http_read_info>* read_queue_ptr = nullptr;
+
+    boost::system::error_code last_ec{};
+
+    std::optional<boost::beast::http::request_parser<boost::beast::http::string_body>> parser;
+
+    enum state
+    {
+        start,
+        has_handshake,
+        read_write,
+        blocked,
+        err,
+        terminated,
+        upgrade,
+    };
+
+    state current_state = start;
+
+    boost::beast::http::response<boost::beast::http::span_body<char>> response_storage;
+
+    http_session_data(tcp::socket&& _sock, connection_settings _sett, ssl::context& ctx) requires std::is_same_v<T, boost::beast::tcp_stream> : sett(_sett), stream(std::move(_sock)) {}
+    http_session_data(tcp::socket&& _sock, connection_settings _sett, ssl::context& ctx) requires std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>> : sett(_sett), stream(std::move(_sock), ctx) {}
+
+    virtual bool can_terminate() override
+    {
+        return current_state != state::err && current_state != state::terminated;
+    }
+
+    virtual bool has_terminated() override
+    {
+        return current_state == state::terminated;
+    }
+
+    virtual bool has_errored() override
+    {
+        return current_state == state::err;
+    }
+
+    virtual void terminate() override
+    {
+        current_state = err;
+    }
+
+    virtual bool perform_upgrade() override
+    {
+        return current_state == upgrade;
+    }
+
+    auto get_base_response(http_write_info::status_code code)
+    {
+        boost::beast::http::response<boost::beast::http::span_body<char>> response;
+
+        response.version(11);
+
+        if(code == http_write_info::status_code::ok)
+        {
+            response.result(boost::beast::http::status::ok);
+        }
+        else if(code == http_write_info::status_code::bad_request)
+        {
+            response.result(boost::beast::http::status::bad_request);
+        }
+        else if(code == http_write_info::status_code::not_found)
+        {
+            response.result(boost::beast::http::status::not_found);
+        }
+        else
+        {
+            response.result(boost::beast::http::status::bad_request);
+        }
+
+        response.set(boost::beast::http::field::server, "net_code_");
+        response.set(boost::beast::http::field::content_type, "text/plain");
+
+        response.keep_alive(false);
+
+        return response;
+    }
+
+    virtual session_data* tick(connection& conn, std::vector<uint64_t>& wake_queue,
+                               std::map<uint64_t, connection_queue_type<write_data>>& websocket_write_queue,
+                               std::map<uint64_t, connection_queue_type<http_write_info>>& http_write_queue,
+                               std::map<uint64_t, std::vector<write_data>>& websocket_read_queue,
+                               std::map<uint64_t, std::vector<http_read_info>>& http_read_queue) override
+    {
+        if(current_state == blocked)
+            return nullptr;
+
+        if(current_state == terminated)
+            return nullptr;
+
+        if(current_state == err && !async_read && !async_write)
+        {
+            //printf("Got networking error %s with value %s:%i\n", last_ec.message().c_str(), last_ec.category().name(), last_ec.value());
+
+            current_state = terminated;
+            return nullptr;
+        }
+
+        ///the callbacks for both async_write and async_read both cause this to wake
+        if(current_state == err && (async_write || async_read))
+        {
+            if(can_cancel && !has_cancelled)
+            {
+                boost::system::error_code ec;
+                boost::beast::get_lowest_layer(stream).socket().cancel(ec);
+                has_cancelled = true;
+            }
+
+            return nullptr;
+        }
+
+        if(current_state == upgrade)
+        {
+            has_cancelled = true;
+            current_state = terminated;
+
+            boost::beast::get_lowest_layer(stream).expires_never();
+
+            websocket_session_data<T>* next_session = new websocket_session_data<T>(std::move(stream), sett);
+            next_session->id = id;
+
+            next_session->perform_upgrade_from_accept(parser->release(), wake_queue);
+
+            rbuffer.clear();
+            wake_queue.push_back(id);
+            async_read = false;
+
+            return next_session;
+        }
+
+    try
+    {
+        if(current_state == start)
+        {
+            current_state = blocked;
+            boost::asio::ip::tcp::no_delay nagle(true);
+
+            if constexpr(std::is_same_v<T, boost::beast::tcp_stream>)
+            {
+                stream.expires_after(std::chrono::seconds(15));
+
+                stream.socket().set_option(nagle);
+                current_state = has_handshake;
+                ///don't need to awake, as we didn't sleep
+            }
+
+            if constexpr(std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>>)
+            {
+                stream.next_layer().expires_after(std::chrono::seconds(15));
+                stream.next_layer().socket().set_option(nagle);
+
+                stream.async_handshake(ssl::stream_base::server, [&](auto ec)
+                {
+                    if(ec)
+                    {
+                        last_ec = ec;
+                        current_state = err;
+                    }
+                    else
+                    {
+                        current_state = has_handshake;
+                    }
+
+                    wake_queue.push_back(id);
+                });
+            }
+
+            can_cancel = true;
+        }
+
+        if(current_state == has_handshake)
+        {
+            //printf("Connection %" PRIu64 " is negotiated\n", id);
+            current_state = read_write;
+
+            write_queue_ptr = &http_write_queue[id];
+            read_queue_ptr = &http_read_queue[id];
+
+            {
+                std::unique_lock guard(conn.mut);
+                conn.new_http_clients.push_back(id);
+            }
+            ///no need to wake
+        }
+
+        if(current_state == read_write)
+        {
+            T& ws = stream;
+
+            connection_queue_type<http_write_info>& write_queue = *write_queue_ptr;
+            std::vector<http_read_info>& read_queue = *read_queue_ptr;
+
+            ///so, theoretically if we don't have any writes, according to this state machine, we'll never wake up if a read doesn't hit us
+            ///the server is responsible for fixing this
+            if(!async_write)
+            {
+                for(auto it = write_queue.begin(); it != write_queue.end();)
+                {
+                    http_write_info& next = *it;
+
+                    if(next.id != id)
+                    {
+                        current_state = err;
+                        wake_queue.push_back(id);
+                        return nullptr;
+                    }
+
+                    async_write = true;
+
+                    response_storage = get_base_response(next.code);
+
+                    response_storage.keep_alive(next.keep_alive);
+
+                    response_storage.body() = boost::beast::http::span_body<char>::value_type((char*)next.body.data(), next.body.size());
+                    response_storage.content_length(response_storage.body().size());
+
+                    response_storage.set(boost::beast::http::field::content_type, next.mime_type);
+
+                    boost::beast::http::async_write(stream, response_storage, [&](boost::system::error_code ec, std::size_t)
+                    {
+                        write_queue.pop_front();
+
+                        if(ec.failed())
+                        {
+                            last_ec = ec;
+                            current_state = err;
+                            wake_queue.push_back(id);
+                            async_write = false;
+                            return;
+                        }
+
+                        async_write = false;
+                        wake_queue.push_back(id);
+                    });
+
+                    break;
+                }
+            }
+
+            if(!async_read)
+            {
+                parser.emplace();
+
+                boost::beast::http::async_read(ws, rbuffer, *parser, [&](boost::system::error_code ec, std::size_t)
+                {
+                    if(ec.failed())
+                    {
+                        last_ec = ec;
+                        current_state = err;
+                        wake_queue.push_back(id);
+                        async_read = false;
+                        return;
+                    }
+
+                    if(boost::beast::websocket::is_upgrade(parser->get()))
+                    {
+                        current_state = upgrade;
+
+                        ///not sure if i can clear rbuffer for parser
+                        async_read = false;
+                        wake_queue.push_back(id);
+                        return;
+                    }
+                    else
+                    {
+                        const auto& req = parser->get();
+
+                        if(req.method() == boost::beast::http::verb::get)
+                        {
+                            auto boost_string_view = req.target();
+
+                            std::string_view target(boost_string_view.data(), boost_string_view.size());
+
+                            http_read_info ndata;
+                            ndata.path = std::string(target);
+                            ndata.keep_alive = req.keep_alive();
+
+                            read_queue.push_back(std::move(ndata));
+                        }
+                        else
+                        {
+                            printf("Method not supported\n");
+                        }
+                    }
+
+                    rbuffer.clear();
+
+                    async_read = false;
+                    wake_queue.push_back(id);
+                });
+
+                async_read = true;
+            }
+        }
+    }
+    catch(...)
+    {
+        printf("Err in session data\n");
+        last_ec = {};
+        current_state = err;
+        wake_queue.push_back(id);
+    }
+
+        return nullptr;
+    }
+};
+
+struct acceptor_data
+{
     ssl::context ctx{ssl::context::tls_server};
+    boost::asio::io_context acceptor_context{1};
+    tcp::acceptor acceptor;
+    tcp::socket next_socket;
+    std::optional<tcp::socket> to_get;
 
-    std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
-    std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
-    std::string key = read_file_bin("./deps/secret/cert/key.pem");
-
-    ctx.set_options(boost::asio::ssl::context::default_workarounds |
-                    boost::asio::ssl::context::no_sslv2 |
-                    boost::asio::ssl::context::single_dh_use |
-                    boost::asio::ssl::context::no_sslv3);
-
-    ctx.use_certificate_chain(
-        boost::asio::buffer(cert.data(), cert.size()));
-
-    ctx.use_private_key(
-        boost::asio::buffer(key.data(), key.size()),
-        boost::asio::ssl::context::file_format::pem);
-
-    ctx.use_tmp_dh(
-        boost::asio::buffer(dh.data(), dh.size()));
-
-    tcp::socket next_socket{acceptor_context};
     bool async_in_flight = false;
 
-    ///owning, individual elements are recycled
-    std::vector<session_data<T>*> all_session_data;
-
-    std::vector<uint64_t> wake_queue;
-    std::vector<uint64_t> next_wake_queue;
-
-    uint64_t tick = 0;
-
-    while(1)
+    acceptor_data(const std::string& saddress, uint16_t port) :
+        acceptor_context{1},
+        acceptor{acceptor_context, {boost::asio::ip::make_address(saddress), port}},
+        next_socket{acceptor_context}
     {
-        tick++;
+        acceptor.set_option(boost::asio::socket_base::reuse_address(true));
 
+        std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
+        std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
+        std::string key = read_file_bin("./deps/secret/cert/key.pem");
+
+        ctx.set_options(boost::asio::ssl::context::default_workarounds |
+                        boost::asio::ssl::context::no_sslv2 |
+                        boost::asio::ssl::context::single_dh_use |
+                        boost::asio::ssl::context::no_sslv3);
+
+        ctx.use_certificate_chain(
+            boost::asio::buffer(cert.data(), cert.size()));
+
+        ctx.use_private_key(
+            boost::asio::buffer(key.data(), key.size()),
+            boost::asio::ssl::context::file_format::pem);
+
+        ctx.use_tmp_dh(
+            boost::asio::buffer(dh.data(), dh.size()));
+    }
+
+    std::optional<tcp::socket> get_next_socket()
+    {
         if(!async_in_flight)
         {
             async_in_flight = true;
@@ -678,46 +1036,111 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                 if(ec)
                 {
                     std::cout << "Error in async accept " << ec.message() << std::endl;
-                    next_socket = tcp::socket{acceptor_context};
-                    async_in_flight = false;
                 }
                 else
                 {
-                    uint64_t id = -1;
-
-                    {
-                        std::lock_guard guard(conn.free_id_queue_lock);
-
-                        if(conn.free_id_queue.size() == 0)
-                        {
-                            id = conn.id++;
-                            all_session_data.push_back(nullptr);
-                        }
-                        else
-                        {
-                            id = conn.free_id_queue.back();
-                            conn.free_id_queue.pop_back();
-                        }
-                    }
-
-                    session_data<T>* dat = new session_data<T>(std::move(next_socket), sett);
-
-                    all_session_data[id] = dat;
-
-                    dat->id = id;
-                    dat->ctx = &ctx;
-                    next_socket = tcp::socket{acceptor_context};
-
-                    wake_queue.push_back(id);
-                    async_in_flight = false;
+                    to_get = std::move(next_socket);
                 }
+
+                next_socket = tcp::socket{acceptor_context};
+                async_in_flight = false;
             });
         }
 
+        if(to_get.has_value())
+        {
+            auto value_opt = std::move(to_get.value());
+            to_get = std::nullopt;
+
+            return value_opt;
+
+        }
+
+        return std::nullopt;
+    }
+
+    void poll()
+    {
         acceptor_context.poll();
 
         if(acceptor_context.stopped())
             acceptor_context.restart();
+    }
+};
+
+template<typename T>
+void server_thread(connection& conn, std::string saddress, uint16_t port, connection_settings sett)
+{
+    acceptor_data acceptor_ctx(saddress, port);
+
+    ///owning, individual elements are recycled
+    std::vector<session_data*> all_session_data;
+
+    std::vector<uint64_t> wake_queue;
+    std::vector<uint64_t> next_wake_queue;
+
+    ///todo: erasing these buffers
+    std::map<uint64_t, connection_queue_type<write_data>> websocket_write_queue;
+    std::map<uint64_t, connection_queue_type<http_write_info>> http_write_queue;
+
+    std::map<uint64_t, std::vector<write_data>> websocket_read_queue;
+    std::map<uint64_t, std::vector<http_read_info>> http_read_queue;
+
+    uint64_t tick = 0;
+
+    while(1)
+    {
+        tick++;
+
+        auto sock_opt = acceptor_ctx.get_next_socket();
+
+        if(sock_opt.has_value())
+        {
+            uint64_t id = -1;
+
+            {
+                std::lock_guard guard(conn.free_id_queue_lock);
+
+                if(conn.free_id_queue.size() == 0)
+                {
+                    id = conn.id++;
+                    all_session_data.push_back(nullptr);
+                }
+                else
+                {
+                    id = conn.free_id_queue.back();
+                    conn.free_id_queue.pop_back();
+                }
+            }
+
+            http_session_data<T>* dat = new http_session_data<T>(std::move(sock_opt.value()), sett, acceptor_ctx.ctx);
+            //websocket_session_data<T>* dat = new websocket_session_data<T>(std::move(sock_opt.value()), sett);
+
+            all_session_data[id] = dat;
+            websocket_write_queue[id].clear();
+            http_write_queue[id].clear();
+
+            dat->id = id;
+
+            wake_queue.push_back(id);
+        }
+
+        {
+            std::lock_guard guard(conn.fat_readwrite_mutex);
+
+            for(auto& i : conn.pending_websocket_write_queue)
+            {
+                move_append(websocket_write_queue[i.first], std::move(i.second));
+            }
+
+            for(auto& i : conn.pending_http_write_queue)
+            {
+                move_append(http_write_queue[i.first], std::move(i.second));
+            }
+
+            conn.pending_websocket_write_queue.clear();
+            conn.pending_http_write_queue.clear();
+        }
 
         {
             std::lock_guard guard(conn.wake_lock);
@@ -731,6 +1154,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
 
         if((tick % 100) == 0)
         {
+            ///don't hold this lock so long!
             std::lock_guard guard(conn.force_disconnection_lock);
 
             for(auto i : conn.force_disconnection_queue)
@@ -738,12 +1162,12 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                 if(i >= all_session_data.size())
                     continue;
 
-                session_data<T>* pdata = all_session_data[i];
+                session_data* pdata = all_session_data[i];
 
                 ///if we're not terminated, and we're not already in an error, transition
-                if(pdata->current_state != session_data<T>::err && pdata->current_state != session_data<T>::terminated)
+                if(pdata->can_terminate())
                 {
-                    pdata->current_state = session_data<T>::err;
+                    pdata->terminate();
                     wake_queue.push_back(i);
                 }
             }
@@ -756,16 +1180,31 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
             if(id >= all_session_data.size())
                 continue;
 
-            session_data<T>* pdata = all_session_data[id];
+            session_data* pdata = all_session_data[id];
 
             ///spurious wakeup
             if(pdata == nullptr)
                 continue;
 
             ///doesn't matter if we get a spurious wakeup
-            pdata->tick(conn, next_wake_queue);
+            session_data* next = pdata->tick(conn, next_wake_queue,
+                                             websocket_write_queue, http_write_queue,
+                                             websocket_read_queue, http_read_queue);
 
-            if(pdata->current_state == session_data<T>::terminated)
+            if(next)
+            {
+                delete pdata;
+
+                all_session_data[id] = next;
+                pdata = next;
+
+                {
+                    std::lock_guard guard(conn.mut);
+                    conn.upgraded_to_websocket.push_back(id);
+                }
+            }
+
+            if(pdata->has_terminated())
             {
                 delete pdata;
                 all_session_data[id] = nullptr;
@@ -787,6 +1226,40 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                         }
                     }
                 }
+
+                {
+                    std::lock_guard guard(conn.mut);
+
+                    for(int i=0; i < (int)conn.new_http_clients.size(); i++)
+                    {
+                        if(conn.new_http_clients[i] == id)
+                        {
+                            conn.new_http_clients.erase(conn.new_http_clients.begin() + i);
+                            i--;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+
+        acceptor_ctx.poll();
+
+        {
+            std::lock_guard guard(conn.fat_readwrite_mutex);
+
+            for(auto& i : websocket_read_queue)
+            {
+                move_append(conn.pending_websocket_read_queue[i.first], std::move(i.second));
+
+                i.second.clear();
+            }
+
+            for(auto& i : http_read_queue)
+            {
+                move_append(conn.pending_http_read_queue[i.first], std::move(i.second));
+
+                i.second.clear();
             }
         }
 
@@ -799,7 +1272,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
 #endif // ASYNC_THREAD
 
 template<typename T>
-void client_thread(connection& conn, std::string address, uint16_t port, std::string sni_hostname, uint64_t client_sleep_time_ms)
+void client_thread(connection& conn, std::string address, uint16_t port, std::string sni_hostname)
 {
     T* wps = nullptr;
     boost::asio::io_context ioc;
@@ -868,7 +1341,6 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
 
         ws.handshake(address, "/");
 
-
         boost::beast::multi_buffer rbuffer;
         boost::beast::multi_buffer wbuffer;
 
@@ -877,27 +1349,8 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
 
         bool should_continue = false;
 
-        std::vector<write_data>* write_queue_ptr = nullptr;
-        std::mutex* write_mutex_ptr = nullptr;
-
-        std::vector<write_data>* read_queue_ptr = nullptr;
-        std::mutex* read_mutex_ptr = nullptr;
-
-        {
-            std::unique_lock guard(conn.mut);
-
-            write_queue_ptr = &conn.directed_write_queue[-1];
-            write_mutex_ptr = &conn.directed_write_lock[-1];
-
-            read_queue_ptr = &conn.fine_read_queue[-1];
-            read_mutex_ptr = &conn.fine_read_lock[-1];
-        }
-
-        std::vector<write_data>& write_queue = *write_queue_ptr;
-        std::mutex& write_mutex = *write_mutex_ptr;
-
-        std::vector<write_data>& read_queue = *read_queue_ptr;
-        std::mutex& read_mutex = *read_mutex_ptr;
+        connection_queue_type<write_data> write_queue;
+        std::vector<write_data> read_queue;
 
         conn.client_connected_to_server = 1;
         conn.connection_in_progress = false;
@@ -911,10 +1364,15 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
 
             try
             {
+                {
+                    std::lock_guard guard(conn.fat_readwrite_mutex);
+
+                    move_append(write_queue, std::move(conn.pending_websocket_write_queue[-1]));
+                    conn.pending_websocket_write_queue.clear();
+                }
+
                 if(!async_write)
                 {
-                    std::lock_guard guard(write_mutex);
-
                     while(write_queue.size() > 0)
                     {
                         const write_data& next = write_queue.front();
@@ -927,13 +1385,13 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
                         write_queue.erase(write_queue.begin());
 
                         ws.async_write(wbuffer.data(), [&](boost::system::error_code ec, std::size_t)
-                                       {
-                                            if(ec.failed())
-                                                throw std::runtime_error("Write err\n");
+                        {
+                            if(ec.failed())
+                                throw std::runtime_error("Write err\n");
 
-                                            async_write = false;
-                                            should_continue = true;
-                                       });
+                            async_write = false;
+                            should_continue = true;
+                        });
 
                         async_write = true;
                         should_continue = true;
@@ -944,25 +1402,23 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
                 if(!async_read)
                 {
                     ws.async_read(rbuffer, [&](boost::system::error_code ec, std::size_t)
-                                  {
-                                      if(ec.failed())
-                                          throw std::runtime_error("Read err\n");
+                    {
+                        if(ec.failed())
+                            throw std::runtime_error("Read err\n");
 
-                                      std::string next = boost::beast::buffers_to_string(rbuffer.data());
+                        std::string next = boost::beast::buffers_to_string(rbuffer.data());
 
-                                      std::lock_guard guard(read_mutex);
+                        write_data ndata;
+                        ndata.data = std::move(next);
+                        ndata.id = -1;
 
-                                      write_data ndata;
-                                      ndata.data = std::move(next);
-                                      ndata.id = -1;
+                        read_queue.push_back(ndata);
 
-                                      read_queue.push_back(ndata);
+                        rbuffer.clear();
 
-                                      rbuffer.clear();
-
-                                      async_read = false;
-                                      should_continue = true;
-                                  });
+                        async_read = false;
+                        should_continue = true;
+                    });
 
                     async_read = true;
                     should_continue = true;
@@ -979,13 +1435,20 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
                 ioc.restart();
             }
 
+            {
+                std::lock_guard guard(conn.fat_readwrite_mutex);
+
+                move_append(conn.pending_websocket_read_queue[-1], std::move(read_queue));
+                read_queue.clear();
+            }
+
             if(should_continue)
             {
                 should_continue = false;
                 continue;
             }
 
-            sf::sleep(sf::milliseconds(client_sleep_time_ms));
+            sf::sleep(sf::milliseconds(conn.client_sleep_interval_ms));
 
             if(conn.should_terminate)
                 break;
@@ -997,19 +1460,10 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
     }
 
     {
-        std::unique_lock guard(conn.mut);
+        std::lock_guard g2(conn.fat_readwrite_mutex);
 
-        {
-            std::lock_guard g2(conn.directed_write_lock[-1]);
-
-            conn.directed_write_queue.clear();
-        }
-
-        {
-            std::lock_guard g3(conn.fine_read_lock[-1]);
-
-            conn.fine_read_queue.clear();
-        }
+        conn.pending_websocket_write_queue.clear();
+        conn.pending_websocket_read_queue.clear();
     }
 
     if(wps)
@@ -1064,14 +1518,12 @@ bool sock_writable(int fd, long seconds = 0, long milliseconds = 0)
 }
 
 std::optional<std::string> tick_tcp_sender(int sock,
-                                           std::vector<write_data>& write_queue, std::mutex& write_mutex,
-                                           std::vector<write_data>& read_queue, std::mutex& read_mutex,
+                                           connection_queue_type<write_data>& write_queue,
+                                           std::vector<write_data>& read_queue,
                                            int MAXDATASIZE,
                                            char buf[])
 {
     {
-        std::lock_guard guard(write_mutex);
-
         while(write_queue.size() > 0 && sock_writable(sock))
         {
             write_data& next = write_queue.front();
@@ -1108,8 +1560,6 @@ std::optional<std::string> tick_tcp_sender(int sock,
             buf[num] = '\0';
 
             std::string ret(buf, buf + num);
-
-            std::lock_guard guard(read_mutex);
 
             write_data ndata;
             ndata.data = std::move(ret);
@@ -1199,34 +1649,22 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
 
         printf("Fin\n");
 
-        std::vector<write_data>* write_queue_ptr = nullptr;
-        std::mutex* write_mutex_ptr = nullptr;
-
-        std::vector<write_data>* read_queue_ptr = nullptr;
-        std::mutex* read_mutex_ptr = nullptr;
-
-        {
-            std::unique_lock guard(conn.mut);
-
-            write_queue_ptr = &conn.directed_write_queue[-1];
-            write_mutex_ptr = &conn.directed_write_lock[-1];
-
-            read_queue_ptr = &conn.fine_read_queue[-1];
-            read_mutex_ptr = &conn.fine_read_lock[-1];
-        }
-
-        std::vector<write_data>& write_queue = *write_queue_ptr;
-        std::mutex& write_mutex = *write_mutex_ptr;
-
-        std::vector<write_data>& read_queue = *read_queue_ptr;
-        std::mutex& read_mutex = *read_mutex_ptr;
+        connection_queue_type<write_data> write_queue;
+        std::vector<write_data> read_queue;
 
         constexpr int MAXDATASIZE = 100000;
         char buf[MAXDATASIZE] = {};
 
         while(1)
         {
-            auto error_opt = tick_tcp_sender(sock, write_queue, write_mutex, read_queue, read_mutex, MAXDATASIZE, buf);
+            {
+                std::lock_guard guard(conn.fat_readwrite_mutex);
+
+                move_append(write_queue, std::move(conn.pending_websocket_write_queue[-1]));
+                conn.pending_websocket_write_queue.clear();
+            }
+
+            auto error_opt = tick_tcp_sender(sock, write_queue, read_queue, MAXDATASIZE, buf);
 
             if(error_opt.has_value())
             {
@@ -1234,7 +1672,14 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
                 break;
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(8));
+            {
+                std::lock_guard guard(conn.fat_readwrite_mutex);
+
+                move_append(conn.pending_websocket_read_queue[-1], std::move(read_queue));
+                read_queue.clear();
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(conn.client_sleep_interval_ms));
         }
 
     }
@@ -1249,25 +1694,105 @@ void client_thread_tcp(connection& conn, std::string address, uint16_t port)
         close(sock);
 
     {
-        std::unique_lock guard(conn.mut);
-
-        {
-            std::lock_guard g2(conn.directed_write_lock[-1]);
-
-            conn.directed_write_queue.clear();
-        }
-
-        {
-            std::lock_guard g3(conn.fine_read_lock[-1]);
-
-            conn.fine_read_queue.clear();
-        }
+        std::unique_lock guard(conn.fat_readwrite_mutex);
+        conn.pending_websocket_write_queue.clear();
+        conn.pending_websocket_read_queue.clear();
     }
 
     conn.client_connected_to_server = 0;
 }
 }
 #endif // __EMSCRIPTEN__
+
+
+http_data::http_data(std::string_view view)
+{
+    ptr = view.begin();
+    len = view.size();
+    owned = false;
+}
+
+http_data::http_data(const char* str, size_t _size)
+{
+    ptr = str;
+    len = _size;
+    owned = true;
+}
+
+http_data::~http_data()
+{
+    if(ptr == nullptr)
+        return;
+
+    if(owned)
+    {
+        delete [] ptr;
+    }
+}
+
+const char* http_data::data() const
+{
+    return ptr;
+}
+
+size_t http_data::size() const
+{
+    return len;
+}
+
+connection_send_data::connection_send_data(const connection_settings& _sett) : sett(_sett)
+{
+
+}
+
+void connection_send_data::disconnect(uint64_t id)
+{
+    force_disconnection_list.insert(id);
+}
+
+bool connection_send_data::write_to_websocket(const write_data& dat)
+{
+    if(dat.data.size() > sett.max_write_size)
+        return false;
+
+    websocket_write_queue[dat.id].push_back(dat);
+
+    return true;
+}
+
+bool connection_send_data::write_to_websocket(write_data&& dat)
+{
+    if(dat.data.size() > sett.max_write_size)
+        return false;
+
+    websocket_write_queue[dat.id].push_back(std::move(dat));
+
+    return true;
+}
+
+bool connection_send_data::write_to_http(const http_write_info& info)
+{
+    if(info.body.size() > sett.max_write_size || info.mime_type.size() > sett.max_write_size)
+        return false;
+
+    http_write_queue[info.id].push_back(info);
+
+    return true;
+}
+
+bool connection_send_data::write_to_http_unchecked(const http_write_info& info)
+{
+    http_write_queue[info.id].push_back(info);
+
+    return true;
+}
+
+bool connection_send_data::write_to_http_unchecked(http_write_info&& info)
+{
+    http_write_queue[info.id].push_back(std::move(info));
+
+    return true;
+}
 
 bool connection::connection_pending()
 {
@@ -1279,22 +1804,20 @@ void connection::host(const std::string& address, uint16_t port, connection_type
 {
     sett = _sett;
 
-    thread_is_server = true;
     is_client = false;
 
     #ifdef SUPPORT_NO_SSL_SERVER
     if(type == connection_type::PLAIN)
-        thrd.emplace_back(server_thread<websocket::stream<boost::beast::tcp_stream>>, std::ref(*this), address, port, sett);
+        thrd.emplace_back(server_thread<boost::beast::tcp_stream>, std::ref(*this), address, port, sett);
     #endif // SUPPORT_NO_SSL_SERVER
 
     if(type == connection_type::SSL)
-        thrd.emplace_back(server_thread<websocket::stream<ssl::stream<boost::beast::tcp_stream>>>, std::ref(*this), address, port, sett);
+        thrd.emplace_back(server_thread<ssl::stream<boost::beast::tcp_stream>>, std::ref(*this), address, port, sett);
 }
 #endif // __EMSCRIPTEN__
 
 void connection::connect(const std::string& address, uint16_t port, connection_type::type type, std::string sni_hostname)
 {
-    thread_is_client = true;
     is_client = true;
 
     #ifndef SERVER_ONLY
@@ -1302,11 +1825,11 @@ void connection::connect(const std::string& address, uint16_t port, connection_t
     #ifndef __EMSCRIPTEN__
     #ifdef SUPPORT_NO_SSL_CLIENT
     if(type == connection_type::PLAIN)
-        thrd.emplace_back(client_thread<websocket::stream<tcp::socket>>, std::ref(*this), address, port, sni_hostname, client_sleep_interval_ms);
+        thrd.emplace_back(client_thread<websocket::stream<tcp::socket>>, std::ref(*this), address, port, sni_hostname);
     #endif // SUPPORT_NO_SSL_CLIENT
 
     if(type == connection_type::SSL)
-        thrd.emplace_back(client_thread<websocket::stream<ssl::stream<tcp::socket>>>, std::ref(*this), address, port, sni_hostname, client_sleep_interval_ms);
+        thrd.emplace_back(client_thread<websocket::stream<ssl::stream<tcp::socket>>>, std::ref(*this), address, port, sni_hostname);
     #else
     ///-s WEBSOCKET_URL=wss://
     if(type != connection_type::EMSCRIPTEN_AUTOMATIC)
@@ -1317,220 +1840,130 @@ void connection::connect(const std::string& address, uint16_t port, connection_t
     #endif // SERVER_ONLY
 }
 
-void connection::write(const std::string& data)
+void connection::send_bulk(connection_send_data& in)
 {
-    write_data ndata;
-    ndata.data = data;
-    ndata.id = -1;
-
-    write_to(ndata);
-}
-
-bool connection::has_read()
-{
-    std::scoped_lock guard(mut);
-
-    for(auto& i : fine_read_queue)
     {
-        std::lock_guard g2(fine_read_lock[i.first]);
+        std::scoped_lock guard(force_disconnection_lock);
 
-        if(i.second.size() > 0)
-            return true;
-    }
-
-    return false;
-}
-
-write_data connection::read_from()
-{
-    /*std::lock_guard guard(mut);
-
-    if(read_queue.size() == 0)
-        throw std::runtime_error("Bad queue");
-
-    return read_queue.front();*/
-
-    ///there's a version of this function that could be written
-    ///where mut is not held all the time
-
-    std::scoped_lock guard(mut);
-
-    ///check through queue, basically round robins people based on ids
-    for(auto& i : fine_read_queue)
-    {
-        if(i.first <= last_read_from)
-            continue;
-
-        std::lock_guard g2(fine_read_lock[i.first]);
-
-        if(i.second.size() > 0)
+        for(auto id : in.force_disconnection_list)
         {
-            last_read_from = i.first;
-            return i.second.front();
+            force_disconnection_queue.insert(id);
         }
     }
 
-    ///nobody suitable available, check if we have a read available from anyone at all
-    ///std::map is sorted so we'll read from lowest id person in the queue
-    for(auto& i : fine_read_queue)
-    {
-        std::lock_guard g2(fine_read_lock[i.first]);
+    in.force_disconnection_list.clear();
 
-        if(i.second.size() > 0)
+    for(auto& i : in.websocket_write_queue)
+    {
+        std::lock_guard guard(fat_readwrite_mutex);
+
+        move_append(pending_websocket_write_queue[i.first], std::move(i.second));
+    }
+
+    for(auto& i : in.http_write_queue)
+    {
+        std::lock_guard guard(fat_readwrite_mutex);
+
+        move_append(pending_http_write_queue[i.first], std::move(i.second));
+    }
+
+    {
+        std::lock_guard guard(wake_lock);
+
+        ///this is a change: instead of waking repeatedly per write, this only wakes once even if there are multiple writes pending
+        ///the underlying implementation already re-wakes, so this is a perf improvement
+        for(auto& i : in.websocket_write_queue)
         {
-            last_read_from = i.first;
-            return i.second.front();
+            wake_queue.push_back(i.first);
+        }
+
+        for(auto& i : in.http_write_queue)
+        {
+            wake_queue.push_back(i.first);
         }
     }
 
-    throw std::runtime_error("Bad queue");
+    in.websocket_write_queue.clear();
+    in.http_write_queue.clear();
 }
 
-void connection::pop_read(uint64_t to_id)
+void connection::receive_bulk(connection_received_data& in)
 {
-    std::vector<write_data>* read_ptr = nullptr;
-    std::mutex* mut_ptr = nullptr;
+    in = connection_received_data();
 
     {
-        std::unique_lock guard(mut);
+        std::scoped_lock guard(mut);
 
-        read_ptr = &fine_read_queue[to_id];
-        mut_ptr = &fine_read_lock[to_id];
+        in.new_clients = std::move(new_clients);
+        new_clients.clear();
+
+        in.upgraded_to_websocket = std::move(upgraded_to_websocket);
+        upgraded_to_websocket.clear();
+
+        in.new_http_clients = std::move(new_http_clients);
+        new_http_clients.clear();
     }
 
-    std::lock_guard guard(*mut_ptr);
+    for(uint64_t id : in.upgraded_to_websocket)
+    {
+        std::scoped_lock guard(fat_readwrite_mutex);
+        conditional_erase(pending_http_write_queue, id);
+        conditional_erase(pending_http_read_queue, id);
+    }
 
-    if(read_ptr->size() == 0)
-        throw std::runtime_error("Bad queue");
+    {
+        {
+            std::scoped_lock guard(disconnected_lock);
 
-    read_ptr->erase(read_ptr->begin());
+            in.disconnected_clients = std::move(disconnected_clients);
 
-    /*if(read_queue.size() == 0)
-        throw std::runtime_error("Bad queue");
+            disconnected_clients.clear();
 
-    read_queue.erase(read_queue.begin());*/
-}
+            for(uint64_t id : in.disconnected_clients)
+            {
+                std::scoped_lock guard(fat_readwrite_mutex);
 
-void connection::force_disconnect(uint64_t id) noexcept
-{
-    std::scoped_lock guard(force_disconnection_lock);
+                conditional_erase(pending_websocket_write_queue, id);
+                conditional_erase(pending_http_write_queue, id);
+                conditional_erase(pending_websocket_read_queue, id);
+                conditional_erase(pending_http_read_queue, id);
+            }
+        }
 
-    force_disconnection_queue.insert(id);
+        {
+            std::lock_guard guard(force_disconnection_lock);
+
+            for(uint64_t id : in.disconnected_clients)
+            {
+                auto it = force_disconnection_queue.find(id);
+
+                if(it != force_disconnection_queue.end())
+                    force_disconnection_queue.erase(it);
+            }
+        }
+
+        {
+            std::lock_guard guard(free_id_queue_lock);
+
+            for(uint64_t id : in.disconnected_clients)
+            {
+                free_id_queue.push_back(id);
+            }
+        }
+    }
+
+    {
+        std::scoped_lock guard(fat_readwrite_mutex);
+
+        in.websocket_read_queue = std::move(pending_websocket_read_queue);
+        in.http_read_queue = std::move(pending_http_read_queue);
+
+        pending_websocket_read_queue.clear();
+        pending_http_read_queue.clear();
+    }
 }
 
 void connection::set_client_sleep_interval(uint64_t time_ms)
 {
     client_sleep_interval_ms = time_ms;
-}
-
-void connection::write_to(const write_data& data)
-{
-    if(data.data.size() > sett.max_write_size)
-        throw std::runtime_error("Exceeded max write size to client " + std::to_string(data.id) + " with size " + std::to_string(data.data.size()) + ". Max size is " + std::to_string(sett.max_write_size));
-
-    {
-        std::vector<write_data>* write_dat = nullptr;
-        std::mutex* write_mutex = nullptr;
-
-        {
-            std::unique_lock guard(mut);
-
-            write_dat = &directed_write_queue[data.id];
-            write_mutex = &directed_write_lock[data.id];
-        }
-
-        std::lock_guard guard(*write_mutex);
-
-        write_dat->push_back(data);
-    }
-
-    {
-        std::lock_guard guard(wake_lock);
-        wake_queue.push_back(data.id);
-    }
-}
-
-std::optional<uint64_t> connection::has_new_client()
-{
-    std::scoped_lock guard(mut);
-
-    for(auto& i : new_clients)
-    {
-        return i;
-    }
-
-    return std::nullopt;
-}
-
-std::optional<uint64_t> connection::has_disconnected_client()
-{
-    std::lock_guard guard(disconnected_lock);
-
-    for(auto& i : disconnected_clients)
-    {
-        return i;
-    }
-
-    return std::nullopt;
-}
-
-template<typename T>
-inline
-void conditional_erase(T& in, int id)
-{
-    auto it = in.find(id);
-
-    if(it == in.end())
-        return;
-
-    in.erase(it);
-}
-
-void connection::pop_disconnected_client()
-{
-    int id;
-
-    {
-        std::lock_guard guard(disconnected_lock);
-
-        if(disconnected_clients.size() == 0)
-            throw std::runtime_error("No disconnected clients");
-
-        id = *disconnected_clients.begin();
-
-        {
-            std::scoped_lock guard(mut);
-
-            conditional_erase(directed_write_queue, id);
-            conditional_erase(directed_write_lock, id);
-            conditional_erase(fine_read_queue, id);
-            conditional_erase(fine_read_lock, id);
-        }
-
-        disconnected_clients.erase(disconnected_clients.begin());
-    }
-
-    {
-        std::lock_guard guard(force_disconnection_lock);
-
-        auto it = force_disconnection_queue.find(id);
-
-        if(it != force_disconnection_queue.end())
-            force_disconnection_queue.erase(it);
-    }
-
-    {
-        std::lock_guard guard(free_id_queue_lock);
-        free_id_queue.push_back(id);
-    }
-}
-
-void connection::pop_new_client()
-{
-    std::unique_lock guard(mut);
-
-    if(new_clients.size() > 0)
-    {
-        new_clients.erase(new_clients.begin());
-    }
 }

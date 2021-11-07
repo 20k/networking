@@ -53,89 +53,122 @@ struct connection_settings
     uint64_t max_write_size = 16 * 1024 * 1024;
 };
 
+template<typename T>
+using connection_queue_type = std::deque<T>;
+
+struct http_read_info
+{
+    enum method
+    {
+        head,
+        body,
+        other
+    };
+
+    std::string path;
+    bool keep_alive = false;
+};
+
+struct http_data
+{
+    const char* ptr = nullptr;
+    size_t len = 0;
+    bool owned = false;
+
+    http_data(){}
+    http_data(std::string_view view); ///view
+    http_data(const char* data, size_t size); ///own. there is unfortunately no way to take a std::string here
+    ~http_data();
+
+    const char* data() const;
+    size_t size() const;
+};
+
+struct http_write_info
+{
+    enum status_code
+    {
+        ok,
+        bad_request,
+        not_found,
+    };
+
+    status_code code = status_code::bad_request;
+
+    uint64_t id;
+    std::string mime_type;
+    http_data body;
+    bool keep_alive = false;
+};
+
+struct connection_received_data
+{
+    std::deque<uint64_t> new_clients;
+    std::deque<uint64_t> new_http_clients;
+    std::deque<uint64_t> disconnected_clients;
+    std::deque<uint64_t> upgraded_to_websocket;
+
+    std::map<uint64_t, std::vector<write_data>> websocket_read_queue;
+    std::map<uint64_t, std::vector<http_read_info>> http_read_queue;
+
+    //std::optional<write_data> get_next_read();
+
+private:
+    size_t last_read_from = -1;
+};
+
+struct connection_send_data
+{
+    connection_settings sett;
+
+    connection_send_data(const connection_settings& _sett);
+
+    std::map<uint64_t, connection_queue_type<write_data>> websocket_write_queue;
+    std::map<uint64_t, connection_queue_type<http_write_info>> http_write_queue;
+    std::set<uint64_t> force_disconnection_list;
+
+    void disconnect(uint64_t id);
+    ///returns true on success
+    bool write_to_websocket(const write_data& dat);
+    bool write_to_websocket(write_data&& dat);
+    bool write_to_http(const http_write_info& info);
+    bool write_to_http_unchecked(const http_write_info& info);
+    bool write_to_http_unchecked(http_write_info&& info);
+};
+
+///so: Todo. I think the submitting side needs to essentially create a batch of work, that gets transferred all at once
+///that way, this avoids the toctou problem with some of this api, and would especially avoid toctou while doing http
 struct connection
 {
     void host(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN, connection_settings sett = connection_settings());
     void connect(const std::string& address, uint16_t port, connection_type::type type = connection_type::PLAIN, std::string sni_hostname = "");
 
-    std::optional<uint64_t> has_new_client();
-    void pop_new_client();
-
-    std::optional<uint64_t> has_disconnected_client();
-    void pop_disconnected_client();
+    void send_bulk(connection_send_data& in);
+    void receive_bulk(connection_received_data& in);
 
     size_t last_read_from = -1;
 
     bool connection_pending();
 
-    bool has_read();
-    write_data read_from();
-    //std::string read();
-    void pop_read(uint64_t id);
-
-    void force_disconnect(uint64_t id) noexcept;
-
     void set_client_sleep_interval(uint64_t time_ms);
 
-    static inline thread_local int thread_is_client = 0;
-    static inline thread_local int thread_is_server = 0;
-
-    #ifndef NO_SERIALISATION
-    template<typename T>
-    uint64_t reads_from(T& old)
-    {
-        write_data data = read_from();
-
-        nlohmann::json nl = nlohmann::json::from_cbor(data.data);
-
-        deserialise<T>(nl, old);
-
-        return data.id;
-    }
-    #endif
-
-
-    /*template<typename T>
-    writes_data<T> reads_from()
-    {
-        T none = T();
-        return reads_from(none);
-    }*/
-
-    void write_to(const write_data& data);
-    void write(const std::string& data);
-
-    #ifndef NO_SERIALISATION
-    template<typename T>
-    void writes_to(T& data, uint64_t to_id)
-    {
-        nlohmann::json ret = serialise(data);
-
-        std::vector<uint8_t> cb = nlohmann::json::to_cbor(ret);
-
-        write_data dat;
-        dat.id = to_id;
-        dat.data = std::string(cb.begin(), cb.end());
-        //dat.data = ret.dump();
-
-        write_to(dat);
-    }
-    #endif
-
     std::mutex mut;
-    std::map<uint64_t, std::vector<write_data>> directed_write_queue;
-    std::map<uint64_t, std::mutex> directed_write_lock;
 
-    //std::vector<write_data> read_queue;
+    ///fat because it protects everything read and write related
+    std::mutex fat_readwrite_mutex;
+    std::map<uint64_t, connection_queue_type<write_data>> pending_websocket_write_queue;
+    std::map<uint64_t, connection_queue_type<http_write_info>> pending_http_write_queue;
 
-    std::map<uint64_t, std::vector<write_data>> fine_read_queue;
-    std::map<uint64_t, std::mutex> fine_read_lock;
+    std::map<uint64_t, std::vector<write_data>> pending_websocket_read_queue;
+    std::map<uint64_t, std::vector<http_read_info>> pending_http_read_queue;
 
     std::mutex wake_lock;
     std::vector<uint64_t> wake_queue;
 
     std::atomic_int id = 0;
     std::deque<uint64_t> new_clients;
+    std::deque<uint64_t> new_http_clients;
+    std::deque<uint64_t> upgraded_to_websocket;
     std::vector<std::thread> thrd;
 
     std::mutex disconnected_lock;
@@ -153,10 +186,12 @@ struct connection
 
     ~connection(){should_terminate = true; for(auto& i : thrd){i.join();}}
 
+    const connection_settings& get_settings(){return sett;}
+
+    std::atomic_int client_sleep_interval_ms = 1;
 private:
     bool is_client = true;
     bool is_connected = false;
-    int client_sleep_interval_ms = 1;
     connection_settings sett;
 };
 
@@ -171,6 +206,7 @@ namespace network_mode
 }
 
 #ifndef NO_SERIALISATION
+#if 0
 struct network_protocol : serialisable
 {
     network_mode::type type = network_mode::COUNT;
@@ -235,6 +271,7 @@ struct network_data_model
         }
     }
 };
+#endif // 0
 #endif
 
 #endif // NETWORKING_HPP_INCLUDED
