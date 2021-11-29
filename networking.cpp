@@ -998,31 +998,34 @@ struct acceptor_data
 
     bool async_in_flight = false;
 
-    acceptor_data(const std::string& saddress, uint16_t port) :
+    acceptor_data(const std::string& saddress, uint16_t port, bool load_ssl) :
         acceptor_context{1},
         acceptor{acceptor_context, {boost::asio::ip::make_address(saddress), port}},
         next_socket{acceptor_context}
     {
         acceptor.set_option(boost::asio::socket_base::reuse_address(true));
 
-        std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
-        std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
-        std::string key = read_file_bin("./deps/secret/cert/key.pem");
-
         ctx.set_options(boost::asio::ssl::context::default_workarounds |
                         boost::asio::ssl::context::no_sslv2 |
                         boost::asio::ssl::context::single_dh_use |
                         boost::asio::ssl::context::no_sslv3);
 
-        ctx.use_certificate_chain(
-            boost::asio::buffer(cert.data(), cert.size()));
+        if(load_ssl)
+        {
+            std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
+            std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
+            std::string key = read_file_bin("./deps/secret/cert/key.pem");
 
-        ctx.use_private_key(
-            boost::asio::buffer(key.data(), key.size()),
-            boost::asio::ssl::context::file_format::pem);
+            ctx.use_certificate_chain(
+                boost::asio::buffer(cert.data(), cert.size()));
 
-        ctx.use_tmp_dh(
-            boost::asio::buffer(dh.data(), dh.size()));
+            ctx.use_private_key(
+                boost::asio::buffer(key.data(), key.size()),
+                boost::asio::ssl::context::file_format::pem);
+
+            ctx.use_tmp_dh(
+                boost::asio::buffer(dh.data(), dh.size()));
+        }
     }
 
     std::optional<tcp::socket> get_next_socket()
@@ -1071,7 +1074,7 @@ struct acceptor_data
 template<typename T>
 void server_thread(connection& conn, std::string saddress, uint16_t port, connection_settings sett)
 {
-    acceptor_data acceptor_ctx(saddress, port);
+    acceptor_data acceptor_ctx(saddress, port, std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>>);
 
     ///owning, individual elements are recycled
     std::vector<session_data*> all_session_data;
