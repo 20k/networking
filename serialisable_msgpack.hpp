@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <nlohmann/json.hpp>
+#include <iostream>
 
 #include "serialisable_msgpack_fwd.hpp"
 
