@@ -213,6 +213,10 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
             {
                 CHECK_THROW(msgpack_pack_int64(&ctx.pk, in));
             }
+            else if constexpr(std::is_same_v<T, std::monostate>)
+            {
+                CHECK_THROW(msgpack_pack_nil(&ctx.pk));
+            }
             else
             {
                 throw std::runtime_error("well that's a mistake");
@@ -249,12 +253,15 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
             {
                 in = (T)obj->via.i64;
             }
+            else if constexpr(std::is_same_v<T, std::monostate>)
+            {
+                in = T();
+            }
             else
             {
                 throw std::runtime_error("Whelp");
             }
         }
-
     }
 }
 
