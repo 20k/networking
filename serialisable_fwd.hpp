@@ -84,9 +84,11 @@ struct owned
 
 struct serialisable
 {
+    #ifndef NO_SERIALISE_RATELIMIT
     std::vector<size_t> last_ratelimit_time;
 
     virtual ~serialisable(){}
+    #endif // NO_SERIALISE_RATELIMIT
 };
 
 struct free_function
