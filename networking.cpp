@@ -383,6 +383,8 @@ struct session_data
     virtual ~session_data(){}
 };
 
+using buffer_type = decltype(boost::asio::dynamic_string_buffer{std::declval<std::string&>()});
+
 template<typename T>
 struct websocket_session_data : session_data
 {
@@ -394,8 +396,11 @@ struct websocket_session_data : session_data
     bool can_cancel = false;
     bool has_cancelled = false;
 
-    boost::beast::flat_buffer rbuffer;
-    boost::beast::flat_buffer wbuffer;
+    std::string backing_read;
+    std::string backing_write;
+
+    buffer_type rbuffer;
+    buffer_type wbuffer;
 
     bool async_read = false;
     bool async_write = false;
@@ -417,7 +422,7 @@ struct websocket_session_data : session_data
 
     state current_state = start;
 
-    websocket_session_data(T&& _stream, connection_settings _sett) : sett(_sett), ws(std::move(_stream))
+    websocket_session_data(T&& _stream, connection_settings _sett) : sett(_sett), ws(std::move(_stream)), rbuffer(backing_read), wbuffer(backing_write)
     {
 
     }
@@ -577,7 +582,7 @@ struct websocket_session_data : session_data
 
                 for(auto it = write_queue.begin(); it != write_queue.end();)
                 {
-                    const write_data& next = *it;
+                    write_data& next = *it;
 
                     if(next.id != id)
                     {
@@ -586,11 +591,8 @@ struct websocket_session_data : session_data
                         return nullptr;
                     }
 
-
                     wbuffer.consume(wbuffer.size());
-
-                    size_t n = buffer_copy(wbuffer.prepare(next.data.size()), boost::asio::buffer(next.data));
-                    wbuffer.commit(n);
+                    backing_write = std::move(next.data);
 
                     async_write = true;
 
@@ -629,7 +631,7 @@ struct websocket_session_data : session_data
                         return;
                     }
 
-                    std::string next = boost::beast::buffers_to_string(rbuffer.data());
+                    std::string next = std::move(backing_read);
 
                     {
                         write_data ndata;
@@ -639,7 +641,8 @@ struct websocket_session_data : session_data
                         read_queue.push_back(std::move(ndata));
                     }
 
-                    rbuffer.clear();
+                    rbuffer.consume(rbuffer.size());
+                    backing_read.clear();
 
                     async_read = false;
                     wake_queue.push_back(id);
