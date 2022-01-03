@@ -1344,8 +1344,10 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
 
         ws.handshake(address, "/");
 
-        boost::beast::multi_buffer rbuffer;
+        std::string backing_read;
+        boost::asio::dynamic_string_buffer rbuffer{backing_read};
         boost::beast::multi_buffer wbuffer;
+
 
         bool async_write = false;
         bool async_read = false;
@@ -1409,15 +1411,16 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
                         if(ec.failed())
                             throw std::runtime_error("Read err\n");
 
-                        std::string next = boost::beast::buffers_to_string(rbuffer.data());
-
                         write_data ndata;
-                        ndata.data = std::move(next);
+                        ndata.data = std::move(backing_read);
                         ndata.id = -1;
 
-                        read_queue.push_back(ndata);
+                        read_queue.push_back(std::move(ndata));
 
-                        rbuffer.clear();
+                        backing_read.clear();
+                        //rbuffer.clear();
+
+                        rbuffer.consume(rbuffer.size());
 
                         async_read = false;
                         should_continue = true;
