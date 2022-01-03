@@ -1346,8 +1346,9 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
 
         std::string backing_read;
         boost::asio::dynamic_string_buffer rbuffer{backing_read};
-        boost::beast::multi_buffer wbuffer;
 
+        std::string backing_write;
+        boost::asio::dynamic_string_buffer wbuffer{backing_write};
 
         bool async_write = false;
         bool async_read = false;
@@ -1380,12 +1381,10 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
                 {
                     while(write_queue.size() > 0)
                     {
-                        const write_data& next = write_queue.front();
+                        write_data& next = write_queue.front();
 
                         wbuffer.consume(wbuffer.size());
-
-                        size_t n = buffer_copy(wbuffer.prepare(next.data.size()), boost::asio::buffer(next.data));
-                        wbuffer.commit(n);
+                        backing_write = std::move(next.data);
 
                         write_queue.erase(write_queue.begin());
 
@@ -1418,8 +1417,6 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
                         read_queue.push_back(std::move(ndata));
 
                         backing_read.clear();
-                        //rbuffer.clear();
-
                         rbuffer.consume(rbuffer.size());
 
                         async_read = false;
