@@ -902,6 +902,12 @@ struct http_session_data : session_data
 
                     response_storage.set(boost::beast::http::field::content_type, next.mime_type);
 
+                    if(next.cross_origin_isolated)
+                    {
+                        response_storage.set("Cross-Origin-Embedder-Policy", "require-corp");
+                        response_storage.set("Cross-Origin-Opener-Policy", "same-origin");
+                    }
+
                     boost::beast::http::async_write(stream, response_storage, [&](boost::system::error_code ec, std::size_t)
                     {
                         write_queue.pop_front();
