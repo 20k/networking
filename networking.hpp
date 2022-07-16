@@ -99,6 +99,7 @@ struct http_write_info
     std::string mime_type;
     http_data body;
     bool keep_alive = false;
+    bool cross_origin_isolated = true;
 };
 
 struct connection_received_data
