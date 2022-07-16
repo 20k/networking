@@ -70,6 +70,9 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::opti
 template<typename T, std::size_t N>
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::array<T, N>& in);
 
+template<typename T, typename U>
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::pair<T, U>& in);
+
 template<typename T>
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::vector<T>& in);
 
@@ -128,6 +131,12 @@ void touch_member_base(serialise_context_msgpack& ctx, msgpack_object* obj, T& i
     }
 }
 
+namespace serialise_impl
+{
+    template <typename... Args>
+    constexpr bool dependent_false = false;
+}
+
 template<typename T>
 inline
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
@@ -165,7 +174,7 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
                     }
                     else
                     {
-                        throw std::runtime_error("Bad width fun");
+                        static_assert(serialise_impl::dependent_false<T>, "Bad integral width in do_serialise");
                     }
                 }
                 else
@@ -188,7 +197,7 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
                     }
                     else
                     {
-                        throw std::runtime_error("Bad width fun2");
+                        static_assert(serialise_impl::dependent_false<T>, "Bad width in do_serialise");
                     }
                 }
             }
@@ -206,12 +215,12 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
                 }
                 else
                 {
-                    throw std::runtime_error("Bad float width");
+                    static_assert(serialise_impl::dependent_false<T>, "Bad float width in do_serialise");
                 }
             }
             else if constexpr(std::is_enum_v<T>)
             {
-                CHECK_THROW(msgpack_pack_int64(&ctx.pk, in));
+                CHECK_THROW(msgpack_pack_int64(&ctx.pk, (uint64_t)in));
             }
             else if constexpr(std::is_same_v<T, std::monostate>)
             {
@@ -219,7 +228,7 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
             }
             else
             {
-                throw std::runtime_error("well that's a mistake");
+                static_assert(serialise_impl::dependent_false<T>, "Bad type in do_serialise (encode)");
             }
         }
 
@@ -259,7 +268,7 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
             }
             else
             {
-                throw std::runtime_error("Whelp");
+                static_assert(serialise_impl::dependent_false<T>, "Bad type in do_serialise (decode)");
             }
         }
     }
@@ -423,6 +432,33 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::arra
         {
             do_serialise(ctx, &obj->via.array.ptr[i], in[i]);
         }
+    }
+}
+
+template<typename T, typename U>
+inline
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::pair<T, U>& in)
+{
+    if(ctx.encode)
+    {
+        CHECK_THROW(msgpack_pack_array(&ctx.pk, 2));
+
+        do_serialise(ctx, nullptr, in.first);
+        do_serialise(ctx, nullptr, in.second);
+    }
+    else
+    {
+        in = std::pair<T, U>();
+
+        uint32_t len = obj->via.array.size;
+
+        uint32_t min_len = std::min(len, (uint32_t)2);
+
+        if(min_len >= 1)
+            do_serialise(ctx, &obj->via.array.ptr[0], in.first);
+
+        if(min_len >= 2)
+            do_serialise(ctx, &obj->via.array.ptr[1], in.second);
     }
 }
 
