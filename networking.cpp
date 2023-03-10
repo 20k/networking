@@ -1276,7 +1276,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
         }
 
         if(wake_queue.size() == 0 && next_wake_queue.size() == 0)
-            sf::sleep(sf::milliseconds(1));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
         wake_queue.clear();
     }
@@ -1460,7 +1460,7 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
                 continue;
             }
 
-            sf::sleep(sf::milliseconds(conn.client_sleep_interval_ms));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
             if(conn.should_terminate)
                 break;
