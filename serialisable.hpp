@@ -56,6 +56,7 @@ namespace serialise_mode
 
 #define PID_STRING "_"
 
+#ifndef NO_SERIALISE_RATELIMIT
 #define DO_SERIALISE_BASE(obj, x, rlim, stagger) do{ try{\
                             static uint32_t my_id##_x = id_counter++; \
                             static std::string s##_x = std::to_string(my_id##_x);\
@@ -123,6 +124,43 @@ namespace serialise_mode
                             }\
                             \
                         } catch(const std::exception& e) { throw; } } while(0);
+#else
+#define DO_SERIALISE_BASE(obj, x, rlim, stagger) do{ try{\
+                            const std::string& my_name = #x;\
+                            assert(ctx.mode == serialise_mode::DISK);\
+                            if(ctx.serialisation) \
+                            { \
+                                decltype(obj->x)* fptr = nullptr;\
+                                \
+                                if(other) \
+                                    fptr = &other->x; \
+                                \
+                                if(other == nullptr || !ctx.encode || !serialisable_is_equal(&obj->x, fptr)) \
+                                    do_serialise(ctx, json_data[my_name], obj->x, fptr); \
+                            } \
+                            if(ctx.exec_rpcs) \
+                            { \
+                                do_recurse(ctx, obj->x); \
+                            } \
+                            if(ctx.check_eq) \
+                            { \
+                                if(!ctx.is_eq_so_far) \
+                                    return; \
+                                assert(other != nullptr); \
+                                if(!serialisable_is_eq_impl(ctx, obj->x, other->x)) \
+                                { \
+                                    ctx.is_eq_so_far = false; \
+                                    return; \
+                                } \
+                            } \
+                            if(ctx.get_by_id) \
+                            { \
+                                if(ctx.get_by_id_found)\
+                                    return;\
+                                find_owned_id(ctx, obj->x); \
+                            }\
+                        } catch(const std::exception& e) { throw; } } while(0);
+#endif // NO_SERIALISE_RATELIMIT
 
 #define DO_SERIALISE_INTERPOLATE_IMPL(obj, x, mode) do{ \
                             static uint32_t my_id##_x = id_counter2++; \

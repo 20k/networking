@@ -11,6 +11,8 @@
 #include <string>
 #include <string_view>
 #include <nlohmann/json.hpp>
+#include <iostream>
+#include <variant>
 
 #include "serialisable_msgpack_fwd.hpp"
 
@@ -59,6 +61,27 @@ inline constexpr bool has_serialisable_base()
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::string& in);
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, const char* in);
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, nlohmann::json& in);
+
+template<typename... T>
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::variant<T...>& in);
+
+template<int N, typename T>
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, vec<N, T>& in);
+
+template<typename T>
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::optional<T>& in);
+
+template<typename T, std::size_t N>
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::array<T, N>& in);
+
+template<typename T, typename U>
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::pair<T, U>& in);
+
+template<typename T>
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::vector<T>& in);
+
+template<typename T, typename U>
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::map<T, U>& in);
 
 template<typename T>
 inline
@@ -112,6 +135,12 @@ void touch_member_base(serialise_context_msgpack& ctx, msgpack_object* obj, T& i
     }
 }
 
+namespace serialise_impl
+{
+    template <typename... Args>
+    constexpr bool dependent_false = false;
+}
+
 template<typename T>
 inline
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
@@ -149,7 +178,7 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
                     }
                     else
                     {
-                        static_assert(false);
+                        static_assert(serialise_impl::dependent_false<T>, "Bad integral width in do_serialise");
                     }
                 }
                 else
@@ -172,7 +201,7 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
                     }
                     else
                     {
-                        static_assert(false);
+                        static_assert(serialise_impl::dependent_false<T>, "Bad width in do_serialise");
                     }
                 }
             }
@@ -190,12 +219,12 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
                 }
                 else
                 {
-                    static_assert(false);
+                    static_assert(serialise_impl::dependent_false<T>, "Bad float width in do_serialise");
                 }
             }
             else if constexpr(std::is_enum_v<T>)
             {
-                CHECK_THROW(msgpack_pack_int64(&ctx.pk, in));
+                CHECK_THROW(msgpack_pack_int64(&ctx.pk, (uint64_t)in));
             }
             else if constexpr(std::is_pointer_v<T>)
             {
@@ -216,9 +245,13 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
                     ctx.serialising_pointers[ctx.pointer_id++] = as_ptr;
                 }
             }
+            else if constexpr(std::is_same_v<T, std::monostate>)
+            {
+                CHECK_THROW(msgpack_pack_nil(&ctx.pk));
+            }
             else
             {
-                static_assert(false);
+                static_assert(serialise_impl::dependent_false<T>, "Bad type in do_serialise (encode)");
             }
         }
     }
@@ -272,12 +305,15 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
                     in = (T)it->second;
                 }
             }
+            else if constexpr(std::is_same_v<T, std::monostate>)
+            {
+                in = T();
+            }
             else
             {
-                static_assert(false);
+                static_assert(serialise_impl::dependent_false<T>, "Bad type in do_serialise (decode)");
             }
         }
-
     }
 }
 
@@ -442,6 +478,33 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::arra
     }
 }
 
+template<typename T, typename U>
+inline
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::pair<T, U>& in)
+{
+    if(ctx.encode)
+    {
+        CHECK_THROW(msgpack_pack_array(&ctx.pk, 2));
+
+        do_serialise(ctx, nullptr, in.first);
+        do_serialise(ctx, nullptr, in.second);
+    }
+    else
+    {
+        in = std::pair<T, U>();
+
+        uint32_t len = obj->via.array.size;
+
+        uint32_t min_len = std::min(len, (uint32_t)2);
+
+        if(min_len >= 1)
+            do_serialise(ctx, &obj->via.array.ptr[0], in.first);
+
+        if(min_len >= 2)
+            do_serialise(ctx, &obj->via.array.ptr[1], in.second);
+    }
+}
+
 template<typename T>
 inline
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::vector<T>& in)
@@ -494,14 +557,79 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::map<
         {
             T key = T();
 
-            do_serialise(ctx, obj->via.map.ptr[i].key, key);
+            do_serialise(ctx, &obj->via.map.ptr[i].key, key);
 
             U val = U();
 
-            do_serialise(ctx, obj->via.map.ptr[i].val, val);
+            do_serialise(ctx, &obj->via.map.ptr[i].val, val);
 
             in[key] = val;
         }
+    }
+}
+
+namespace detail
+{
+    template<typename T>
+    inline
+    void variant_helper2(serialise_context_msgpack& ctx, msgpack_object* obj, T& in, size_t index)
+    {
+
+    }
+
+    template<typename T, std::size_t I, std::size_t... I2>
+    inline
+    void variant_helper2(serialise_context_msgpack& ctx, msgpack_object* obj, T& in, size_t index)
+    {
+        if(index == I)
+        {
+            std::variant_alternative_t<I, T> val = std::variant_alternative_t<I, T>();
+
+            do_serialise(ctx, obj, val);
+
+            in = val;
+        }
+
+        variant_helper2<T, I2...>(ctx, obj, in, index);
+    }
+
+    template<typename T, std::size_t... I>
+    inline
+    void variant_helper(serialise_context_msgpack& ctx, msgpack_object* obj, T& in, size_t index, std::index_sequence<I...>)
+    {
+        variant_helper2<T, I...>(ctx, obj, in, index);
+    }
+}
+
+template<typename... T>
+inline
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::variant<T...>& in)
+{
+    if(ctx.encode)
+    {
+        CHECK_THROW(msgpack_pack_map(&ctx.pk, 1));
+
+        size_t index = in.index();
+
+        do_serialise(ctx, nullptr, index);
+
+        std::visit([&](auto& v)
+        {
+            do_serialise(ctx, nullptr, v);
+        }, in);
+    }
+    else
+    {
+        if(obj->via.map.size != 1)
+            throw std::runtime_error("Failed to unpack variant");
+
+        size_t index = 0;
+
+        do_serialise(ctx, &obj->via.map.ptr[0].key, index);
+
+        constexpr auto iseq = std::index_sequence_for<T...>{};
+
+        detail::variant_helper(ctx, &obj->via.map.ptr[0].val, in, index, iseq);
     }
 }
 
@@ -547,9 +675,9 @@ T deserialise_msg(std::string_view in)
     {
         do_serialise(ctx, &deserialized, ret);
     }
-    catch(...)
+    catch(std::exception& err)
     {
-        printf("Error deserialising\n");
+        printf("Error deserialising %s\n", err.what());
     }
 
     msgpack_zone_destroy(&mempool);

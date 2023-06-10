@@ -383,6 +383,8 @@ struct session_data
     virtual ~session_data(){}
 };
 
+using buffer_type = decltype(boost::asio::dynamic_string_buffer{std::declval<std::string&>()});
+
 template<typename T>
 struct websocket_session_data : session_data
 {
@@ -394,8 +396,11 @@ struct websocket_session_data : session_data
     bool can_cancel = false;
     bool has_cancelled = false;
 
-    boost::beast::flat_buffer rbuffer;
-    boost::beast::flat_buffer wbuffer;
+    std::string backing_read;
+    std::string backing_write;
+
+    buffer_type rbuffer;
+    buffer_type wbuffer;
 
     bool async_read = false;
     bool async_write = false;
@@ -417,7 +422,7 @@ struct websocket_session_data : session_data
 
     state current_state = start;
 
-    websocket_session_data(T&& _stream, connection_settings _sett) : sett(_sett), ws(std::move(_stream))
+    websocket_session_data(T&& _stream, connection_settings _sett) : sett(_sett), ws(std::move(_stream)), rbuffer(backing_read), wbuffer(backing_write)
     {
 
     }
@@ -577,7 +582,7 @@ struct websocket_session_data : session_data
 
                 for(auto it = write_queue.begin(); it != write_queue.end();)
                 {
-                    const write_data& next = *it;
+                    write_data& next = *it;
 
                     if(next.id != id)
                     {
@@ -586,11 +591,8 @@ struct websocket_session_data : session_data
                         return nullptr;
                     }
 
-
                     wbuffer.consume(wbuffer.size());
-
-                    size_t n = buffer_copy(wbuffer.prepare(next.data.size()), boost::asio::buffer(next.data));
-                    wbuffer.commit(n);
+                    backing_write = std::move(next.data);
 
                     async_write = true;
 
@@ -629,7 +631,7 @@ struct websocket_session_data : session_data
                         return;
                     }
 
-                    std::string next = boost::beast::buffers_to_string(rbuffer.data());
+                    std::string next = std::move(backing_read);
 
                     {
                         write_data ndata;
@@ -639,7 +641,8 @@ struct websocket_session_data : session_data
                         read_queue.push_back(std::move(ndata));
                     }
 
-                    rbuffer.clear();
+                    rbuffer.consume(rbuffer.size());
+                    backing_read.clear();
 
                     async_read = false;
                     wake_queue.push_back(id);
@@ -899,6 +902,12 @@ struct http_session_data : session_data
 
                     response_storage.set(boost::beast::http::field::content_type, next.mime_type);
 
+                    if(next.cross_origin_isolated)
+                    {
+                        response_storage.set("Cross-Origin-Embedder-Policy", "require-corp");
+                        response_storage.set("Cross-Origin-Opener-Policy", "same-origin");
+                    }
+
                     boost::beast::http::async_write(stream, response_storage, [&](boost::system::error_code ec, std::size_t)
                     {
                         write_queue.pop_front();
@@ -998,31 +1007,34 @@ struct acceptor_data
 
     bool async_in_flight = false;
 
-    acceptor_data(const std::string& saddress, uint16_t port) :
+    acceptor_data(const std::string& saddress, uint16_t port, bool load_ssl) :
         acceptor_context{1},
         acceptor{acceptor_context, {boost::asio::ip::make_address(saddress), port}},
         next_socket{acceptor_context}
     {
         acceptor.set_option(boost::asio::socket_base::reuse_address(true));
 
-        std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
-        std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
-        std::string key = read_file_bin("./deps/secret/cert/key.pem");
-
         ctx.set_options(boost::asio::ssl::context::default_workarounds |
                         boost::asio::ssl::context::no_sslv2 |
                         boost::asio::ssl::context::single_dh_use |
                         boost::asio::ssl::context::no_sslv3);
 
-        ctx.use_certificate_chain(
-            boost::asio::buffer(cert.data(), cert.size()));
+        if(load_ssl)
+        {
+            std::string cert = read_file_bin("./deps/secret/cert/cert.crt");
+            std::string dh = read_file_bin("./deps/secret/cert/dh.pem");
+            std::string key = read_file_bin("./deps/secret/cert/key.pem");
 
-        ctx.use_private_key(
-            boost::asio::buffer(key.data(), key.size()),
-            boost::asio::ssl::context::file_format::pem);
+            ctx.use_certificate_chain(
+                boost::asio::buffer(cert.data(), cert.size()));
 
-        ctx.use_tmp_dh(
-            boost::asio::buffer(dh.data(), dh.size()));
+            ctx.use_private_key(
+                boost::asio::buffer(key.data(), key.size()),
+                boost::asio::ssl::context::file_format::pem);
+
+            ctx.use_tmp_dh(
+                boost::asio::buffer(dh.data(), dh.size()));
+        }
     }
 
     std::optional<tcp::socket> get_next_socket()
@@ -1071,7 +1083,7 @@ struct acceptor_data
 template<typename T>
 void server_thread(connection& conn, std::string saddress, uint16_t port, connection_settings sett)
 {
-    acceptor_data acceptor_ctx(saddress, port);
+    acceptor_data acceptor_ctx(saddress, port, std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>>);
 
     ///owning, individual elements are recycled
     std::vector<session_data*> all_session_data;
@@ -1264,7 +1276,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
         }
 
         if(wake_queue.size() == 0 && next_wake_queue.size() == 0)
-            sf::sleep(sf::milliseconds(1));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
         wake_queue.clear();
     }
@@ -1341,8 +1353,11 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
 
         ws.handshake(address, "/");
 
-        boost::beast::multi_buffer rbuffer;
-        boost::beast::multi_buffer wbuffer;
+        std::string backing_read;
+        boost::asio::dynamic_string_buffer rbuffer{backing_read};
+
+        std::string backing_write;
+        boost::asio::dynamic_string_buffer wbuffer{backing_write};
 
         bool async_write = false;
         bool async_read = false;
@@ -1375,12 +1390,10 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
                 {
                     while(write_queue.size() > 0)
                     {
-                        const write_data& next = write_queue.front();
+                        write_data& next = write_queue.front();
 
                         wbuffer.consume(wbuffer.size());
-
-                        size_t n = buffer_copy(wbuffer.prepare(next.data.size()), boost::asio::buffer(next.data));
-                        wbuffer.commit(n);
+                        backing_write = std::move(next.data);
 
                         write_queue.erase(write_queue.begin());
 
@@ -1406,15 +1419,14 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
                         if(ec.failed())
                             throw std::runtime_error("Read err\n");
 
-                        std::string next = boost::beast::buffers_to_string(rbuffer.data());
-
                         write_data ndata;
-                        ndata.data = std::move(next);
+                        ndata.data = std::move(backing_read);
                         ndata.id = -1;
 
-                        read_queue.push_back(ndata);
+                        read_queue.push_back(std::move(ndata));
 
-                        rbuffer.clear();
+                        backing_read.clear();
+                        rbuffer.consume(rbuffer.size());
 
                         async_read = false;
                         should_continue = true;
@@ -1448,7 +1460,7 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
                 continue;
             }
 
-            sf::sleep(sf::milliseconds(conn.client_sleep_interval_ms));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
             if(conn.should_terminate)
                 break;
