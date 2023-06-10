@@ -16,6 +16,10 @@
 
 struct serialise_context_msgpack
 {
+    uint64_t pointer_id = 1;
+    std::map<uintptr_t, uint64_t> serialising_pointers;
+    std::map<uint64_t, uintptr_t> deserialising_pointers;
+
     bool encode = true;
 
     msgpack_sbuffer sbuf;
@@ -145,7 +149,7 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
                     }
                     else
                     {
-                        throw std::runtime_error("Bad width fun");
+                        static_assert(false);
                     }
                 }
                 else
@@ -168,7 +172,7 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
                     }
                     else
                     {
-                        throw std::runtime_error("Bad width fun2");
+                        static_assert(false);
                     }
                 }
             }
@@ -186,19 +190,37 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
                 }
                 else
                 {
-                    throw std::runtime_error("Bad float width");
+                    static_assert(false);
                 }
             }
             else if constexpr(std::is_enum_v<T>)
             {
                 CHECK_THROW(msgpack_pack_int64(&ctx.pk, in));
             }
+            else if constexpr(std::is_pointer_v<T>)
+            {
+                uint64_t val = 0;
+
+                uintptr_t as_ptr = (uintptr_t)in;
+
+                if(auto it = ctx.serialising_pointers.find(as_ptr); it != ctx.serialising_pointers.end())
+                {
+                    val = it->second;
+
+                    CHECK_THROW(msgpack_pack_uint64(&ctx.pk, val));
+                }
+                else
+                {
+                    serialise_base(*in, ctx, obj);
+
+                    ctx.serialising_pointers[ctx.pointer_id++] = as_ptr;
+                }
+            }
             else
             {
-                throw std::runtime_error("well that's a mistake");
+                static_assert(false);
             }
         }
-
     }
     else
     {
@@ -229,9 +251,30 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
             {
                 in = (T)obj->via.i64;
             }
+            else if constexpr(std::is_pointer_v<T>)
+            {
+                if(obj->type == MSGPACK_OBJECT_MAP)
+                {
+                    in = new std::remove_pointer_t<std::decay_t<T>>();
+
+                    ctx.deserialising_pointers[ctx.pointer_id++] = (uintptr_t)in;
+
+                    serialise_base(*in, ctx, obj);
+                }
+                else
+                {
+                    uint64_t id = obj->via.u64;
+
+                    auto it = ctx.deserialising_pointers.find(id);
+
+                    assert(it != ctx.deserialising_pointers.end());
+
+                    in = (T)it->second;
+                }
+            }
             else
             {
-                throw std::runtime_error("Whelp");
+                static_assert(false);
             }
         }
 
