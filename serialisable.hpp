@@ -394,6 +394,8 @@ struct serialise_context
 template<typename T>
 nlohmann::json serialise(T& in, serialise_mode::type mode = serialise_mode::NETWORK);
 
+void do_serialise(serialise_context& ctx, nlohmann::json& data, nlohmann::json& in,  nlohmann::json* other);
+
 inline
 void args_to_nlohmann_1(nlohmann::json& in, serialise_context& ctx, int& idx)
 {
@@ -625,6 +627,21 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, T* other)
                 in._pid = data[PID_STRING];
             }
         }
+    }
+}
+
+#include <iostream>
+
+inline
+void do_serialise(serialise_context& ctx, nlohmann::json& data, nlohmann::json& in,  nlohmann::json* other)
+{
+    if(ctx.encode)
+    {
+        data = in;
+    }
+    else
+    {
+        in = data;
     }
 }
 
@@ -1227,7 +1244,6 @@ nlohmann::json serialise(T& in, serialise_mode::type mode)
 
     nlohmann::json data;
 
-    in = T{};
     call_serialise(in, ctx, data);
 
     if constexpr(std::is_base_of_v<owned, T>)
