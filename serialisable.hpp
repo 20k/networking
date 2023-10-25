@@ -394,6 +394,8 @@ struct serialise_context
 template<typename T>
 nlohmann::json serialise(T& in, serialise_mode::type mode = serialise_mode::NETWORK);
 
+void do_serialise(serialise_context& ctx, nlohmann::json& data, nlohmann::json& in,  nlohmann::json* other);
+
 inline
 void args_to_nlohmann_1(nlohmann::json& in, serialise_context& ctx, int& idx)
 {
@@ -480,9 +482,14 @@ void call_serialise(T& in, serialise_context& ctx, nlohmann::json& json, T* othe
         serialise_base(&in, ctx, json, other);
     }
 
-    if constexpr(!std::is_base_of_v<free_function, T>)
+    else if constexpr(std::is_base_of_v<serialisable, T> && !std::is_base_of_v<free_function, T>)
     {
         in.serialise(ctx, json, other);
+    }
+
+    else
+    {
+        do_serialise(ctx, json, in, other);
     }
 }
 
@@ -620,6 +627,21 @@ void do_serialise(serialise_context& ctx, nlohmann::json& data, T& in, T* other)
                 in._pid = data[PID_STRING];
             }
         }
+    }
+}
+
+#include <iostream>
+
+inline
+void do_serialise(serialise_context& ctx, nlohmann::json& data, nlohmann::json& in,  nlohmann::json* other)
+{
+    if(ctx.encode)
+    {
+        data = in;
+    }
+    else
+    {
+        in = data;
     }
 }
 
@@ -1222,15 +1244,7 @@ nlohmann::json serialise(T& in, serialise_mode::type mode)
 
     nlohmann::json data;
 
-    if constexpr(std::is_base_of_v<serialisable, T>)
-    {
-        call_serialise(in, ctx, data);
-    }
-
-    if constexpr(!std::is_base_of_v<serialisable, T>)
-    {
-        data = in;
-    }
+    call_serialise(in, ctx, data);
 
     if constexpr(std::is_base_of_v<owned, T>)
     {
@@ -1293,17 +1307,8 @@ T deserialise(nlohmann::json& in)
     ctx.encode = false;
     ctx.serialisation = true;
 
-    T ret;
-
-    if constexpr(std::is_base_of_v<serialisable, T>)
-    {
-        call_serialise(ret, ctx, in);
-    }
-
-    if constexpr(!std::is_base_of_v<serialisable, T>)
-    {
-        ret = (T)in;
-    }
+    T ret = {};
+    call_serialise(ret, ctx, in);
 
     if constexpr(std::is_base_of_v<owned, T>)
     {
@@ -1322,15 +1327,8 @@ void deserialise(nlohmann::json& in, T& dat, serialise_mode::type mode = seriali
     ctx.serialisation = true;
     ctx.mode = mode;
 
-    if constexpr(std::is_base_of_v<serialisable, T>)
-    {
-        call_serialise(dat, ctx, in);
-    }
-
-    if constexpr(!std::is_base_of_v<serialisable, T>)
-    {
-        dat = (T)in;
-    }
+    dat = T{};
+    call_serialise(dat, ctx, in);
 
     if constexpr(std::is_base_of_v<owned, T>)
     {
