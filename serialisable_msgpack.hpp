@@ -13,6 +13,7 @@
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <variant>
+#include <set>
 
 #include "serialisable_msgpack_fwd.hpp"
 
@@ -80,8 +81,14 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::pair
 template<typename T>
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::vector<T>& in);
 
+template<typename T>
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::set<T>& in);
+
 template<typename T, typename U>
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::map<T, U>& in);
+
+template<typename T, typename U>
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::unordered_map<T, U>& in);
 
 template<typename T>
 inline
@@ -533,6 +540,36 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::vect
     }
 }
 
+template<typename T>
+inline
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::set<T>& in)
+{
+    if(ctx.encode)
+    {
+        CHECK_THROW(msgpack_pack_array(&ctx.pk, in.size()));
+
+        for(const T& i : in)
+        {
+            do_serialise(ctx, nullptr, const_cast<T&>(i));
+        }
+    }
+    else
+    {
+        in.clear();
+
+        uint32_t len = obj->via.array.size;
+
+        for(uint32_t i=0; i < len; i++)
+        {
+            T v = T{};
+
+            do_serialise(ctx, &obj->via.array.ptr[i], v);
+
+            in.insert(v);
+        }
+    }
+}
+
 template<typename T, typename U>
 inline
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::map<T, U>& in)
@@ -543,7 +580,42 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::map<
 
         for(auto& i : in)
         {
-            do_serialise(ctx, nullptr, i.first);
+            do_serialise(ctx, nullptr, const_cast<T&>(i.first));
+            do_serialise(ctx, nullptr, i.second);
+        }
+    }
+    else
+    {
+        in.clear();
+
+        uint32_t len = obj->via.map.size;
+
+        for(uint32_t i=0; i < len; i++)
+        {
+            T key = T();
+
+            do_serialise(ctx, &obj->via.map.ptr[i].key, key);
+
+            U val = U();
+
+            do_serialise(ctx, &obj->via.map.ptr[i].val, val);
+
+            in[key] = val;
+        }
+    }
+}
+
+template<typename T, typename U>
+inline
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::unordered_map<T, U>& in)
+{
+    if(ctx.encode)
+    {
+        CHECK_THROW(msgpack_pack_map(&ctx.pk, in.size()));
+
+        for(auto& i : in)
+        {
+            do_serialise(ctx, nullptr, const_cast<T&>(i.first));
             do_serialise(ctx, nullptr, i.second);
         }
     }
