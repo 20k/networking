@@ -123,7 +123,7 @@ void touch_member_base(serialise_context_msgpack& ctx, msgpack_object* obj, T& i
 
         for(int i=0; i < (int)obj->via.map.size; i++)
         {
-            uint32_t len = obj->via.map.ptr[id].key.via.str.size;
+            uint32_t len = obj->via.map.ptr[i].key.via.str.size;
 
             if(strncmp(obj->via.map.ptr[i].key.via.str.ptr, name, len) == 0)
             {
