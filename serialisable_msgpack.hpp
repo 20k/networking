@@ -28,13 +28,13 @@ struct serialise_context_msgpack
     msgpack_sbuffer sbuf;
     msgpack_packer pk;
 
-    serialise_context_msgpack()
+    void start()
     {
         msgpack_sbuffer_init(&sbuf);
         msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
     }
 
-    ~serialise_context_msgpack()
+    void stop()
     {
         msgpack_sbuffer_destroy(&sbuf);
     }
@@ -294,7 +294,7 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
                 {
                     serialise_base(*in, ctx, obj);
 
-                    ctx.serialising_pointers[ctx.pointer_id++] = as_ptr;
+                    ctx.serialising_pointers[as_ptr] = ctx.pointer_id++;
                 }
             }
             else if constexpr(std::is_same_v<T, std::monostate>)
@@ -768,9 +768,9 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::vari
 
 template<typename T>
 inline
-std::string serialise_msg(T& in)
+std::string serialise_msg(T& in, serialise_context_msgpack& ctx)
 {
-    serialise_context_msgpack ctx;
+    ctx.start();
     ctx.encode = true;
 
     try
@@ -786,14 +786,25 @@ std::string serialise_msg(T& in)
         std::cout << e.what() << std::endl;
     }
 
+    ctx.stop();
+
     return "";
 }
 
 template<typename T>
 inline
-T deserialise_msg(std::string_view in)
+std::string serialise_msg(T& in)
 {
     serialise_context_msgpack ctx;
+
+    return serialise_msg<T>(in, ctx);
+}
+
+template<typename T>
+inline
+T deserialise_msg(std::string_view in, serialise_context_msgpack& ctx)
+{
+    ctx.start();
     ctx.encode = false;
 
     msgpack_zone mempool;
@@ -815,7 +826,18 @@ T deserialise_msg(std::string_view in)
 
     msgpack_zone_destroy(&mempool);
 
+    ctx.stop();
+
     return ret;
+}
+
+template<typename T>
+inline
+T deserialise_msg(std::string_view in)
+{
+    serialise_context_msgpack ctx;
+
+    return deserialise_msg<T>(in, ctx);
 }
 
 #endif // SERIALISABLE_MSGPACK_HPP_INCLUDED
