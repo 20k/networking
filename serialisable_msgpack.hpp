@@ -45,6 +45,34 @@ struct serialise_context_msgpack
 #define DO_MSG_FSERIALISE(x, id, name) touch_member_base(ctx, obj, me.x, id, name)
 #define DO_MSG_FSERIALISE_SIMPLE(x) touch_member_base(ctx, obj, me.x, counter++, #x)
 
+#ifdef SERIALISE_ALLOW_BOOST_PFR
+#include <boost/pfr.hpp>
+
+template< size_t I, size_t max_value, typename T, typename U>
+inline
+void reflect_on_aggregate(T& t, U&& func)
+{
+    func(boost::pfr::get<I>(t), boost::pfr::get_name<I, T>(), I);
+
+    if constexpr(I+1 != max_value)
+        reflect_on_aggregate<I+1, max_value>(t, std::forward<U>(func));
+}
+
+#define DEFINE_MSG_AGGREGATE_FSERIALISE(x) \
+    void serialise_base(x& me, serialise_context_msgpack& ctx, msgpack_object* obj) { \
+        constexpr size_t count = boost::pfr::tuple_size<x>::value; \
+        \
+        if(ctx.encode){ CHECK_THROW(msgpack_pack_map(&ctx.pk, count)); } \
+        \
+        reflect_on_aggregate<0, count>(me, [&ctx, obj](auto&& val, auto&& name, size_t idx) \
+        { \
+            touch_member_base(ctx, obj, val, idx, name); \
+        }); \
+    \
+    }
+
+#endif
+
 #define CHECK_THROW(x) do{if(auto rval = (x); rval != 0) { throw std::runtime_error("Serialisation failed " + std::to_string(rval)); } } while(0)
 
 template<typename T, typename = void>
@@ -60,6 +88,7 @@ inline constexpr bool has_serialisable_base()
 }
 
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::string& in);
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::string_view& in);
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, const char* in);
 void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, nlohmann::json& in);
 
@@ -116,11 +145,27 @@ void touch_member_base(serialise_context_msgpack& ctx, msgpack_object* obj, T& i
     {
         in = T();
 
+        auto is_eq = [&](const char* ptr, size_t size)
+        {
+            std::string_view view(ptr, size);
+
+            if constexpr(std::is_same_v<name_type, std::string_view>)
+            {
+                return view == name;
+            }
+            else
+            {
+                std::string_view sname(name, strlen(name));
+
+                return view == sname;
+            }
+        };
+
         if(id < (int)obj->via.map.size)
         {
             uint32_t len = obj->via.map.ptr[id].key.via.str.size;
 
-            if(strncmp(obj->via.map.ptr[id].key.via.str.ptr, name, len) == 0)
+            if(is_eq(obj->via.map.ptr[id].key.via.str.ptr, len))
             {
                 do_serialise(ctx, &obj->via.map.ptr[id].val, in);
 
@@ -132,7 +177,7 @@ void touch_member_base(serialise_context_msgpack& ctx, msgpack_object* obj, T& i
         {
             uint32_t len = obj->via.map.ptr[i].key.via.str.size;
 
-            if(strncmp(obj->via.map.ptr[i].key.via.str.ptr, name, len) == 0)
+            if(is_eq(obj->via.map.ptr[i].key.via.str.ptr, len))
             {
                 do_serialise(ctx, &obj->via.map.ptr[i].val, in);
 
@@ -321,6 +366,22 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, T& in)
                 static_assert(serialise_impl::dependent_false<T>, "Bad type in do_serialise (decode)");
             }
         }
+    }
+}
+
+inline
+void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::string_view& in)
+{
+    if(ctx.encode)
+    {
+        CHECK_THROW(msgpack_pack_str(&ctx.pk, in.size()));
+
+        CHECK_THROW(msgpack_pack_str_body(&ctx.pk, in.data(), in.size()));
+    }
+    else
+    {
+        ///cannot decode a string_view
+        assert(false);
     }
 }
 
