@@ -802,7 +802,7 @@ std::string serialise_msg(T& in)
 
 template<typename T>
 inline
-T deserialise_msg(std::string_view in, serialise_context_msgpack& ctx)
+void deserialise_msg(T& ret, std::string_view in, serialise_context_msgpack& ctx)
 {
     ctx.start();
     ctx.encode = false;
@@ -812,8 +812,6 @@ T deserialise_msg(std::string_view in, serialise_context_msgpack& ctx)
 
     msgpack_object deserialized;
     msgpack_unpack(in.data(), in.size(), NULL, &mempool, &deserialized);
-
-    T ret = T();
 
     try
     {
@@ -827,17 +825,19 @@ T deserialise_msg(std::string_view in, serialise_context_msgpack& ctx)
     msgpack_zone_destroy(&mempool);
 
     ctx.stop();
-
-    return ret;
 }
 
 template<typename T>
 inline
 T deserialise_msg(std::string_view in)
 {
+    T val = T();
+
     serialise_context_msgpack ctx;
 
-    return deserialise_msg<T>(in, ctx);
+    deserialise_msg(val, in, ctx);
+
+    return val;
 }
 
 #endif // SERIALISABLE_MSGPACK_HPP_INCLUDED
