@@ -65,6 +65,14 @@ struct http_read_info
         other
     };
 
+    enum request_type
+    {
+        GET,
+        POST,
+    };
+
+    request_type type = request_type::GET;
+
     std::string path;
     bool keep_alive = false;
 };
