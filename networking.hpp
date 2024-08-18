@@ -86,7 +86,12 @@ struct http_data
     http_data(){}
     http_data(std::string_view view); ///view
     http_data(const char* data, size_t size); ///own. there is unfortunately no way to take a std::string here
+    http_data(http_data&& other);
+    http_data& operator=(http_data&& other);
     ~http_data();
+
+    http_data(const http_data&) = delete;
+    http_data& operator=(const http_data&) = delete;
 
     const char* data() const;
     size_t size() const;
@@ -140,8 +145,8 @@ struct connection_send_data
     ///returns true on success
     bool write_to_websocket(const write_data& dat);
     bool write_to_websocket(write_data&& dat);
-    bool write_to_http(const http_write_info& info);
-    bool write_to_http_unchecked(const http_write_info& info);
+    bool write_to_http(http_write_info&& info);
+    //bool write_to_http_unchecked(http_write_info info);
     bool write_to_http_unchecked(http_write_info&& info);
 };
 

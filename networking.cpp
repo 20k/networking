@@ -1738,6 +1738,32 @@ http_data::http_data(const char* str, size_t _size)
     owned = true;
 }
 
+http_data::http_data(http_data&& other)
+{
+    if(this == &other)
+        return;
+
+    ptr = other.ptr;
+    len = other.len;
+    owned = other.owned;
+
+    other.owned = false;
+}
+
+http_data& http_data::operator=(http_data&& other)
+{
+    if(this == &other)
+        return *this;
+
+    ptr = other.ptr;
+    len = other.len;
+    owned = other.owned;
+
+    other.owned = false;
+
+    return *this;
+}
+
 http_data::~http_data()
 {
     if(ptr == nullptr)
@@ -1789,22 +1815,22 @@ bool connection_send_data::write_to_websocket(write_data&& dat)
     return true;
 }
 
-bool connection_send_data::write_to_http(const http_write_info& info)
+bool connection_send_data::write_to_http(http_write_info&& info)
 {
     if(info.body.size() > sett.max_write_size || info.mime_type.size() > sett.max_write_size)
         return false;
 
-    http_write_queue[info.id].push_back(info);
+    http_write_queue[info.id].push_back(std::move(info));
 
     return true;
 }
 
-bool connection_send_data::write_to_http_unchecked(const http_write_info& info)
+/*bool connection_send_data::write_to_http_unchecked(http_write_info info)
 {
-    http_write_queue[info.id].push_back(info);
+    http_write_queue[info.id].push_back(std::move(info));
 
     return true;
-}
+}*/
 
 bool connection_send_data::write_to_http_unchecked(http_write_info&& info)
 {
