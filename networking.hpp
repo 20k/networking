@@ -76,6 +76,7 @@ struct http_read_info
     std::string path;
     bool keep_alive = false;
     std::string body;
+    std::vector<std::pair<std::string, std::string>> fields;
 };
 
 struct http_data

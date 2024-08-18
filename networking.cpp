@@ -963,6 +963,8 @@ struct http_session_data : session_data
                             auto boost_string_view = req.target();
                             auto body_string_view = req.body();
 
+                            auto base = req.base();
+
                             std::string_view target(boost_string_view.data(), boost_string_view.size());
                             std::string_view body(body_string_view.data(), body_string_view.size());
 
@@ -977,6 +979,11 @@ struct http_session_data : session_data
                                 ndata.type = http_read_info::POST;
 
                             ndata.body = std::string(body);
+
+                            for(const auto& i : base)
+                            {
+                                ndata.fields.push_back({i.name_string(), i.value()});
+                            }
 
                             read_queue.push_back(std::move(ndata));
                         }
