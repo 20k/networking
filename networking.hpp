@@ -58,12 +58,12 @@ using connection_queue_type = std::deque<T>;
 
 struct http_read_info
 {
-    enum method
+    /*enum method
     {
         head,
         body,
         other
-    };
+    };*/
 
     enum request_type
     {
@@ -75,6 +75,7 @@ struct http_read_info
 
     std::string path;
     bool keep_alive = false;
+    std::string body;
 };
 
 struct http_data

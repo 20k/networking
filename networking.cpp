@@ -961,8 +961,10 @@ struct http_session_data : session_data
                            req.method() == boost::beast::http::verb::post)
                         {
                             auto boost_string_view = req.target();
+                            auto body_string_view = req.body();
 
                             std::string_view target(boost_string_view.data(), boost_string_view.size());
+                            std::string_view body(body_string_view.data(), body_string_view.size());
 
                             http_read_info ndata;
                             ndata.path = std::string(target);
@@ -973,6 +975,8 @@ struct http_session_data : session_data
 
                             if(req.method() == boost::beast::http::verb::post)
                                 ndata.type = http_read_info::POST;
+
+                            ndata.body = std::string(body);
 
                             read_queue.push_back(std::move(ndata));
                         }
