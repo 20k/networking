@@ -876,6 +876,8 @@ struct http_session_data : session_data
             connection_queue_type<http_write_info>& write_queue = *write_queue_ptr;
             std::vector<http_read_info>& read_queue = *read_queue_ptr;
 
+            get_lowest_layer(stream).expires_never();
+
             ///so, theoretically if we don't have any writes, according to this state machine, we'll never wake up if a read doesn't hit us
             ///the server is responsible for fixing this
             if(!async_write)
