@@ -660,11 +660,7 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::map<
 
             do_serialise(ctx, &obj->via.map.ptr[i].key, key);
 
-            U val = U();
-
-            do_serialise(ctx, &obj->via.map.ptr[i].val, val);
-
-            in[key] = val;
+            do_serialise(ctx, &obj->via.map.ptr[i].val, in[key]);
         }
     }
 }
