@@ -593,6 +593,8 @@ void do_serialise(serialise_context_msgpack& ctx, msgpack_object* obj, std::vect
 
         uint32_t len = obj->via.array.size;
 
+        in.reserve(len);
+
         for(uint32_t i=0; i < len; i++)
         {
             T& v = in.emplace_back();
