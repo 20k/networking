@@ -800,8 +800,6 @@ struct http_session_data : session_data
             has_cancelled = true;
             current_state = terminated;
 
-            boost::beast::get_lowest_layer(stream).expires_never();
-
             websocket_session_data<T>* next_session = new websocket_session_data<T>(std::move(stream), sett);
             next_session->id = id;
 
@@ -876,8 +874,6 @@ struct http_session_data : session_data
             connection_queue_type<http_write_info>& write_queue = *write_queue_ptr;
             std::vector<http_read_info>& read_queue = *read_queue_ptr;
 
-            get_lowest_layer(stream).expires_never();
-
             ///so, theoretically if we don't have any writes, according to this state machine, we'll never wake up if a read doesn't hit us
             ///the server is responsible for fixing this
             if(!async_write)
@@ -910,6 +906,8 @@ struct http_session_data : session_data
                         response_storage.set("Cross-Origin-Opener-Policy", "same-origin");
                     }
 
+                    get_lowest_layer(stream).expires_never();
+
                     boost::beast::http::async_write(stream, response_storage, [&](boost::system::error_code ec, std::size_t)
                     {
                         write_queue.pop_front();
@@ -934,6 +932,8 @@ struct http_session_data : session_data
             if(!async_read)
             {
                 parser.emplace();
+
+                get_lowest_layer(stream).expires_never();
 
                 boost::beast::http::async_read(ws, rbuffer, *parser, [&](boost::system::error_code ec, std::size_t)
                 {
