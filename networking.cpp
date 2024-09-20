@@ -703,8 +703,13 @@ struct http_session_data : session_data
 
     boost::beast::http::response<boost::beast::http::span_body<char>> response_storage;
 
-    http_session_data(tcp::socket&& _sock, connection_settings _sett, ssl::context& ctx) requires std::is_same_v<T, boost::beast::tcp_stream> : sett(_sett), stream(std::move(_sock)) {}
-    http_session_data(tcp::socket&& _sock, connection_settings _sett, ssl::context& ctx) requires std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>> : sett(_sett), stream(std::move(_sock), ctx) {}
+    http_session_data(tcp::socket&& _sock, connection_settings _sett, ssl::context& ctx) requires std::is_same_v<T, boost::beast::tcp_stream> : sett(_sett), stream(std::move(_sock))
+    {
+    }
+
+    http_session_data(tcp::socket&& _sock, connection_settings _sett, ssl::context& ctx) requires std::is_same_v<T, ssl::stream<boost::beast::tcp_stream>> : sett(_sett), stream(std::move(_sock), ctx)
+    {
+    }
 
     virtual bool can_terminate() override
     {
@@ -932,6 +937,7 @@ struct http_session_data : session_data
             if(!async_read)
             {
                 parser.emplace();
+                parser->body_limit(sett.max_read_size);
 
                 get_lowest_layer(stream).expires_never();
 
