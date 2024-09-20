@@ -145,6 +145,7 @@ void server_session(connection& conn, boost::asio::io_context* psocket_ioc, tcp:
             std::unique_lock guard(conn.mut);
 
             conn.new_clients.push_back(id);
+            conn.new_client_ips.push_back(stream.get_lowest_layer().remote_endpoint())
         }
 
         boost::beast::multi_buffer rbuffer;
@@ -566,8 +567,21 @@ struct websocket_session_data : session_data
             read_queue_ptr = &websocket_read_queue[id];
 
             {
+                boost::system::error_code ec;
+
+                auto endpoint = ws.next_layer().lowest_layer().remote_endpoint(ec).address().to_string(ec);
+
+                if(ec.failed())
+                {
+                    last_ec = ec;
+                    current_state = err;
+                    wake_queue.push_back(id);
+                    return nullptr;
+                }
+
                 std::unique_lock guard(conn.mut);
                 conn.new_clients.push_back(id);
+                conn.new_client_ips.push_back(endpoint);
             }
             ///no need to wake
         }
@@ -866,8 +880,21 @@ struct http_session_data : session_data
             read_queue_ptr = &http_read_queue[id];
 
             {
+                boost::system::error_code ec;
+
+                auto endpoint = stream.lowest_layer().remote_endpoint(ec).address().to_string(ec);
+
+                if(ec.failed())
+                {
+                    last_ec = ec;
+                    current_state = err;
+                    wake_queue.push_back(id);
+                    return nullptr;
+                }
+
                 std::unique_lock guard(conn.mut);
                 conn.new_http_clients.push_back(id);
+                conn.new_http_client_ips.push_back(endpoint);
             }
             ///no need to wake
         }
@@ -1259,6 +1286,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                         if(conn.new_clients[i] == id)
                         {
                             conn.new_clients.erase(conn.new_clients.begin() + i);
+                            conn.new_client_ips.erase(conn.new_client_ips.begin() + i);
                             i--;
                             continue;
                         }
@@ -1273,6 +1301,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                         if(conn.new_http_clients[i] == id)
                         {
                             conn.new_http_clients.erase(conn.new_http_clients.begin() + i);
+                            conn.new_http_client_ips.erase(conn.new_http_client_ips.begin() + i);
                             i--;
                             continue;
                         }
@@ -1961,11 +1990,17 @@ void connection::receive_bulk(connection_received_data& in)
         in.new_clients = std::move(new_clients);
         new_clients.clear();
 
+        in.new_client_ips = std::move(new_client_ips);
+        new_client_ips.clear();
+
         in.upgraded_to_websocket = std::move(upgraded_to_websocket);
         upgraded_to_websocket.clear();
 
         in.new_http_clients = std::move(new_http_clients);
         new_http_clients.clear();
+
+        in.new_http_client_ips = std::move(new_http_client_ips);
+        new_http_client_ips.clear();
     }
 
     for(uint64_t id : in.upgraded_to_websocket)
