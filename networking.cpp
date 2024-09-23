@@ -76,6 +76,16 @@ namespace ssl = boost::asio::ssl;               // from <boost/asio/ssl.hpp>
 namespace
 {
 
+void sleep_ms(int ms)
+{
+    #define SFML_SLEEP
+    #ifdef SFML_SLEEP
+    sf::sleep(sf::milliseconds(ms));
+    #else
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+    #endif
+}
+
 std::string read_file_bin(const std::string& file)
 {
     std::ifstream t(file, std::ios::binary);
@@ -1331,7 +1341,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
         }
 
         if(wake_queue.size() == 0 && next_wake_queue.size() == 0)
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            sleep_ms(1);
 
         wake_queue.clear();
     }
@@ -1515,7 +1525,7 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
                 continue;
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            sleep_ms(1);
 
             if(conn.should_terminate)
                 break;
