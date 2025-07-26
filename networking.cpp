@@ -579,7 +579,7 @@ struct websocket_session_data : session_data
             {
                 boost::system::error_code ec;
 
-                auto endpoint = ws.next_layer().lowest_layer().remote_endpoint(ec).address().to_string(ec);
+                auto endpoint = ws.next_layer().lowest_layer().remote_endpoint(ec).address().to_string();
 
                 if(ec.failed())
                 {
@@ -892,7 +892,7 @@ struct http_session_data : session_data
             {
                 boost::system::error_code ec;
 
-                auto endpoint = stream.lowest_layer().remote_endpoint(ec).address().to_string(ec);
+                auto endpoint = stream.lowest_layer().remote_endpoint(ec).address().to_string();
 
                 if(ec.failed())
                 {
