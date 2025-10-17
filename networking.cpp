@@ -38,6 +38,7 @@
 #include <memory>
 #include <thread>
 #include <vector>
+#include <SFML/System/Time.hpp>
 #include <SFML/System/Sleep.hpp>
 #include <fstream>
 #endif // __EMSCRIPTEN__
@@ -80,7 +81,7 @@ void sleep_ms(int ms)
 {
     #define SFML_SLEEP
     #ifdef SFML_SLEEP
-    sf::sleep(sf::milliseconds(ms));
+    sf::sleep(std::chrono::milliseconds(ms));
     #else
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
     #endif
