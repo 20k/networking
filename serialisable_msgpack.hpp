@@ -776,7 +776,11 @@ std::string serialise_msg(T& in, serialise_context_msgpack& ctx)
     {
         do_serialise(ctx, nullptr, in);
 
-        return std::string(ctx.sbuf.data, ctx.sbuf.size);
+        auto data = std::string(ctx.sbuf.data, ctx.sbuf.size);
+
+        ctx.stop();
+
+        return data;
     }
     catch(const std::exception& e)
     {
