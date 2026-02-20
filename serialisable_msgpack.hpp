@@ -176,6 +176,12 @@ void touch_member_base(serialise_context_msgpack& ctx, msgpack_object* obj, T& i
 
         for(int i=0; i < (int)obj->via.map.size; i++)
         {
+            if(obj->via.map.ptr[i].key.type != MSGPACK_OBJECT_STR)
+            {
+                printf("Warning corrupt entry %i\n", id);
+                return;
+            }
+
             uint32_t len = obj->via.map.ptr[i].key.via.str.size;
 
             if(is_eq(obj->via.map.ptr[i].key.via.str.ptr, len))
