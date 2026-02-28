@@ -178,7 +178,7 @@ void touch_member_base(serialise_context_msgpack& ctx, msgpack_object* obj, T& i
         {
             if(obj->via.map.ptr[i].key.type != MSGPACK_OBJECT_STR)
             {
-                printf("Warning corrupt entry %i\n", id);
+                std::cout << "Warning corrupt entry " << id << " " << name << std::endl;
                 return;
             }
 
