@@ -1289,6 +1289,8 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                 std::lock_guard guard(conn.disconnected_lock);
                 conn.disconnected_clients.push_back(id);
 
+                //I don't know why I wrote this
+                #ifndef NO_NEW_CLIENT_CLEANUP
                 {
                     std::lock_guard guard(conn.mut);
 
@@ -1318,6 +1320,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
                         }
                     }
                 }
+                #endif
             }
         }
 
