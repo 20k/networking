@@ -1352,6 +1352,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
 }
 #endif // ASYNC_THREAD
 
+#ifndef SERVER_ONLY
 template<typename T>
 void client_thread(connection& conn, std::string address, uint16_t port, std::string sni_hostname)
 {
@@ -1556,6 +1557,7 @@ void client_thread(connection& conn, std::string address, uint16_t port, std::st
     conn.client_connected_to_server = 0;
     conn.connection_in_progress = false;
 }
+#endif
 }
 #endif // __EMSCRIPTEN__
 
@@ -1923,11 +1925,11 @@ void connection::host(const std::string& address, uint16_t port, connection_type
 }
 #endif // __EMSCRIPTEN__
 
+#ifndef SERVER_ONLY
 void connection::connect(const std::string& address, uint16_t port, connection_type::type type, std::string sni_hostname)
 {
     is_client = true;
 
-    #ifndef SERVER_ONLY
 
     #ifndef __EMSCRIPTEN__
     #ifdef SUPPORT_NO_SSL_CLIENT
@@ -1944,8 +1946,8 @@ void connection::connect(const std::string& address, uint16_t port, connection_t
 
     thrd.emplace_back(client_thread_tcp, std::ref(*this), address, port);
     #endif
-    #endif // SERVER_ONLY
 }
+#endif
 
 void connection::send_bulk(connection_send_data& in)
 {
