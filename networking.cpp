@@ -377,6 +377,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port)
 #define ASYNC_THREAD
 #ifdef ASYNC_THREAD
 
+#ifndef CLIENT_ONLY
 struct session_data
 {
     //session_data(tcp::socket&& _sock, connection_settings _sett) : socket(std::move(_sock)), sett(_sett){}
@@ -1350,6 +1351,7 @@ void server_thread(connection& conn, std::string saddress, uint16_t port, connec
         wake_queue.clear();
     }
 }
+#endif // CLIENT_ONLY
 #endif // ASYNC_THREAD
 
 #ifndef SERVER_ONLY
@@ -1909,6 +1911,7 @@ bool connection::connection_pending()
 }
 
 #ifndef __EMSCRIPTEN__
+#ifndef CLIENT_ONLY
 void connection::host(const std::string& address, uint16_t port, connection_type::type type, connection_settings _sett)
 {
     sett = _sett;
@@ -1923,6 +1926,7 @@ void connection::host(const std::string& address, uint16_t port, connection_type
     if(type == connection_type::SSL)
         thrd.emplace_back(server_thread<ssl::stream<boost::beast::tcp_stream>>, std::ref(*this), address, port, sett);
 }
+#endif
 #endif // __EMSCRIPTEN__
 
 #ifndef SERVER_ONLY
