@@ -28,6 +28,11 @@ namespace networking2
 
         void disconnect(uint64_t id);
         void write_to(write_data&& dat);
+        //exists purely for existing API compatibility
+        void write_to_websocket(write_data&& dat)
+        {
+            return write_to(std::move(dat));
+        }
     };
 
     struct network_server
