@@ -298,14 +298,14 @@ struct steam_network_server : networking2::network_server
         assert(snu);
 
         SteamNetworkingIPAddr addr;
-        addr.SetIPv4(0, 1286);
+        addr.SetIPv4(0, port);
 
         //HSteamListenSocket sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketIP(sns, addr, 0, nullptr);
 
         SteamNetworkingConfigValue_t opt;
         opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)::global_on_status_changed);
 
-        sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P(sns, 1286, 0, nullptr);
+        sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P(sns, port, 0, nullptr);
         assert(sock != k_HSteamListenSocket_Invalid);
 
         base->start();
@@ -396,7 +396,7 @@ struct steam_network_client : networking2::network_client
         SteamNetworkingConfigValue_t opt;
 		opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)client_global_on_status_changed);
 
-        conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P(sns, sni, 1286, 1, &opt);
+        conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P(sns, sni, port, 1, &opt);
         in_progress = true;
     }
 
