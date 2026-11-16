@@ -36,8 +36,8 @@ namespace networking2
     {
         network_server(){assert(false);}
 
-        virtual void queue_send(connection_send_data&& to_send){assert(false);}
-        virtual void queue_receive(connection_received_data& to_receive){assert(false);}
+        virtual void send_bulk(connection_send_data&& to_send){assert(false);}
+        virtual void receive_bulk(connection_received_data& to_receive){assert(false);}
 
         virtual ~network_server(){}
     };

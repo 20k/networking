@@ -162,7 +162,7 @@ struct steam_network_server : networking2::network_server
         return to_write.size() > 0;
     }
 
-    void queue_send(networking2::connection_send_data&& to_send) override
+    void send_bulk(networking2::connection_send_data&& to_send) override
     {
         {
             std::lock_guard guard(write_lock);
@@ -177,7 +177,7 @@ struct steam_network_server : networking2::network_server
         }
     }
 
-    void queue_receive(networking2::connection_received_data& to_receive) override
+    void receive_bulk(networking2::connection_received_data& to_receive) override
     {
         {
             std::lock_guard guard(read_lock);
