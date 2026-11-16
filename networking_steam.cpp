@@ -397,6 +397,7 @@ struct steam_network_client : networking2::network_client
 		opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)client_global_on_status_changed);
 
         conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P(sns, sni, 1286, 1, &opt);
+        in_progress = true;
     }
 
     void send_bulk(networking2::connection_send_data&& to_send) override
