@@ -6,8 +6,6 @@
 #include <vector>
 #include <assert.h>
 
-void test_steam_networking(int appid);
-
 namespace networking2
 {
     struct write_data
@@ -36,13 +34,31 @@ namespace networking2
     {
         network_server(){assert(false);}
 
+        virtual void host(const std::string& address, uint16_t port){assert(false);}
+
         virtual void send_bulk(connection_send_data&& to_send){assert(false);}
         virtual void receive_bulk(connection_received_data& to_receive){assert(false);}
+        virtual void terminate(){assert(false);}
 
         virtual ~network_server(){}
+    };
+
+    struct network_client
+    {
+        virtual bool client_connected_to_server();
+        virtual bool connection_in_progress();
+
+        virtual void connect(const std::string& address, uint16_t port){assert(false);}
+
+        virtual void send_bulk(connection_send_data&& to_send){assert(false);}
+        virtual void receive_bulk(connection_received_data& to_receive){assert(false);}
+        virtual void terminate(){assert(false);}
+
+        virtual ~network_client(){}
     };
 }
 
 networking2::network_server* start_network_server();
+networking2::network_client* start_network_client();
 
 #endif // NETWORKING_STEAM_HPP_INCLUDED

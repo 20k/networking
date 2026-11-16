@@ -47,13 +47,14 @@ struct steam_network_server;
 //this is such a capi-ism
 steam_network_server* net = nullptr;
 
-struct steam_network_server : networking2::network_server
+struct network_base
 {
-    HSteamListenSocket sock;
+    network_base(ISteamNetworkingSockets* sock) : sns(sock){}
+
     HSteamNetPollGroup poll_group;
     ISteamNetworkingSockets* sns = nullptr;
 
-    std::flat_set<HSteamNetConnection> clients;
+    //std::flat_set<HSteamNetConnection> clients;
 
     std::mutex write_lock;
     std::vector<write_data> write_msgs;
@@ -73,30 +74,8 @@ struct steam_network_server : networking2::network_server
     std::atomic_bool shutdown{false};
     std::jthread thrd;
 
-    steam_network_server()
+    void start()
     {
-        assert(SteamGameServer_Init(0, 1286, 1233, eServerModeNoAuthentication, "0.0.0.0"));
-
-        ISteamGameServer* sgs = SteamAPI_SteamGameServer();
-        SteamAPI_ISteamGameServer_LogOnAnonymous(sgs);
-
-        sns = SteamAPI_SteamGameServerNetworkingSockets_SteamAPI();
-        assert(sns);
-
-        ISteamNetworkingUtils* snu = SteamAPI_SteamNetworkingUtils_SteamAPI();
-        assert(snu);
-
-        SteamNetworkingIPAddr addr;
-        addr.SetIPv4(0, 1286);
-
-        //HSteamListenSocket sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketIP(sns, addr, 0, nullptr);
-
-        SteamNetworkingConfigValue_t opt;
-        opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)::global_on_status_changed);
-
-        sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P(sns, 1286, 0, nullptr);
-        assert(sock != k_HSteamListenSocket_Invalid);
-
         poll_group = SteamAPI_ISteamNetworkingSockets_CreatePollGroup(sns);
         assert(poll_group != k_HSteamNetPollGroup_Invalid);
 
@@ -118,6 +97,7 @@ struct steam_network_server : networking2::network_server
     {
         SteamAPI_ISteamNetworkingSockets_SendMessageToConnection(sns, conn, data.data(), data.size(), k_nSteamNetworkingSend_ReliableNoNagle, nullptr);
     }
+
 
     void add_disconnected(uint64_t id)
     {
@@ -162,7 +142,7 @@ struct steam_network_server : networking2::network_server
         return to_write.size() > 0;
     }
 
-    void send_bulk(networking2::connection_send_data&& to_send) override
+    void send_bulk(networking2::connection_send_data&& to_send)
     {
         {
             std::lock_guard guard(write_lock);
@@ -177,7 +157,7 @@ struct steam_network_server : networking2::network_server
         }
     }
 
-    void receive_bulk(networking2::connection_received_data& to_receive) override
+    void receive_bulk(networking2::connection_received_data& to_receive)
     {
         {
             std::lock_guard guard(read_lock);
@@ -197,6 +177,7 @@ struct steam_network_server : networking2::network_server
             new_clients.clear();
         }
     }
+
 
     bool receive_messages()
     {
@@ -254,7 +235,7 @@ struct steam_network_server : networking2::network_server
                 break;
 
             case k_ESteamNetworkingConnectionState_Connecting:
-                assert(clients.find(info->m_hConn) == clients.end());
+                //assert(clients.find(info->m_hConn) == clients.end());
 
                 if(SteamAPI_ISteamNetworkingSockets_AcceptConnection(sns, info->m_hConn) != k_EResultOK)
                 {
@@ -277,15 +258,72 @@ struct steam_network_server : networking2::network_server
 
                 break;
 
+            case k_ESteamNetworkingConnectionState_Connected:
+                break;
+
             default:
                 break;
         }
     }
 
-    ~steam_network_server()
+    void stop()
     {
         shutdown = true;
         thrd.join();
+    }
+};
+
+struct steam_network_server : networking2::network_server
+{
+    network_base* base = nullptr;
+    ISteamNetworkingSockets* sns = nullptr;
+    HSteamListenSocket sock;
+
+    steam_network_server(){}
+
+    void host(const std::string& address, uint16_t port) override
+    {
+        assert(SteamGameServer_Init(0, port, 1233, eServerModeNoAuthentication, address.c_str()));
+
+        ISteamGameServer* sgs = SteamAPI_SteamGameServer();
+
+        SteamAPI_ISteamGameServer_LogOnAnonymous(sgs);
+
+        sns = SteamAPI_SteamGameServerNetworkingSockets_SteamAPI();
+        assert(sns);
+
+        base = new network_base(sns);
+
+        ISteamNetworkingUtils* snu = SteamAPI_SteamNetworkingUtils_SteamAPI();
+        assert(snu);
+
+        SteamNetworkingIPAddr addr;
+        addr.SetIPv4(0, 1286);
+
+        //HSteamListenSocket sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketIP(sns, addr, 0, nullptr);
+
+        SteamNetworkingConfigValue_t opt;
+        opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)::global_on_status_changed);
+
+        sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P(sns, 1286, 0, nullptr);
+        assert(sock != k_HSteamListenSocket_Invalid);
+
+        base->start();
+    }
+
+    void send_bulk(networking2::connection_send_data&& to_send) override
+    {
+        base->send_bulk(std::move(to_send));
+    }
+
+    void receive_bulk(networking2::connection_received_data& to_receive) override
+    {
+        base->receive_bulk(to_receive);
+    }
+
+    ~steam_network_server()
+    {
+        base->stop();
 
         ISteamNetworkingSockets* sns = SteamAPI_SteamGameServerNetworkingSockets_SteamAPI();
         assert(sns);
@@ -296,38 +334,116 @@ struct steam_network_server : networking2::network_server
         //follow destruct order from valve's example chat
         //https://github.com/ValveSoftware/GameNetworkingSockets/blob/master/examples/example_chat.cpp
         SteamAPI_ISteamNetworkingSockets_CloseListenSocket(sns, sock);
-        SteamAPI_ISteamNetworkingSockets_DestroyPollGroup(sns, poll_group);
+        SteamAPI_ISteamNetworkingSockets_DestroyPollGroup(sns, base->poll_group);
 
         SteamAPI_ISteamGameServer_LogOff(sgs);
         SteamGameServer_Shutdown();
+
+        delete base;
+        base = nullptr;
     }
 };
 
 void on_status_changed(SteamNetConnectionStatusChangedCallback_t* info)
 {
-    net->on_status_changed(info);
+    net->base->on_status_changed(info);
 }
 
-void test_steam_networking(int appid)
+void client_global_on_status_changed(SteamNetConnectionStatusChangedCallback_t* info);
+
+struct steam_network_client;
+
+steam_network_client* client_net = nullptr;
+
+struct steam_network_client : networking2::network_client
 {
-    net = new steam_network_server;
+    std::atomic_bool client_connected{false};
+    std::atomic_bool in_progress{false};
+    ISteamNetworkingSockets* sns = nullptr;
+    HSteamNetConnection conn = k_HSteamNetConnection_Invalid;
 
-    /*SteamErrMsg msg = {};
-    ESteamAPIInitResult result = SteamAPI_InitFlat(&msg);
-    printf("%s\n", msg);
-    assert(result == k_ESteamAPIInitResult_OK);
+    network_base* base = nullptr;
 
-    ISteamNetworkingSockets* sns = SteamAPI_SteamNetworkingSockets_SteamAPI();
-    assert(sns);
+    bool client_connected_to_server() override
+    {
+        return client_connected;
+    }
 
-    ESteamNetworkingAvailability avail = SteamAPI_ISteamNetworkingSockets_InitAuthentication(sns);
+    bool connection_in_progress() override
+    {
+        return in_progress;
+    }
 
-    printf("Availability %i\n", avail);*/
+    steam_network_client()
+    {
+        SteamAPI_Init();
 
+        sns = SteamAPI_SteamNetworkingSockets_SteamAPI();
+        assert(sns);
 
-    while(1){}
+        base = new network_base(sns);
+    }
 
-    assert(false);
+    void connect(const std::string& address, uint16_t port) override
+    {
+        SteamNetworkingIdentity sni;
+
+        SteamNetworkingIPAddr addr;
+        assert(addr.ParseString((address + ":" + std::to_string(port)).c_str()));
+
+        sni.SetIPAddr(addr);
+
+        SteamNetworkingConfigValue_t opt;
+		opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)client_global_on_status_changed);
+
+        conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P(sns, sni, 1286, 1, &opt);
+    }
+
+    void send_bulk(networking2::connection_send_data&& to_send) override
+    {
+        base->send_bulk(std::move(to_send));
+    }
+
+    void receive_bulk(networking2::connection_received_data& to_receive) override
+    {
+        base->receive_bulk(to_receive);
+    }
+
+    void on_status_changed(SteamNetConnectionStatusChangedCallback_t* info)
+    {
+        assert(info->m_hConn == conn || conn == k_HSteamNetConnection_Invalid);
+
+        switch(info->m_info.m_eState)
+        {
+            case k_ESteamNetworkingConnectionState_None:
+                break;
+
+            case k_ESteamNetworkingConnectionState_ClosedByPeer:
+            case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+                client_connected = false;
+                in_progress = false;
+
+                SteamAPI_ISteamNetworkingSockets_CloseConnection(sns, info->m_hConn, 0, nullptr, false);
+                break;
+
+            case k_ESteamNetworkingConnectionState_Connecting:
+                break;
+
+            case k_ESteamNetworkingConnectionState_Connected:
+                client_connected = true;
+                in_progress = false;
+
+                break;
+
+            default:
+                break;
+        }
+    }
+};
+
+void client_global_on_status_changed(SteamNetConnectionStatusChangedCallback_t* info)
+{
+    client_net->on_status_changed(info);
 }
 
 networking2::network_server* start_network_server()
@@ -336,4 +452,11 @@ networking2::network_server* start_network_server()
 
     net = new steam_network_server;
     return net;
+}
+
+networking2::network_client* start_network_client()
+{
+    assert(!client_net);
+    client_net = new steam_network_client;
+    return client_net;
 }
