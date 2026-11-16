@@ -106,6 +106,7 @@ struct steam_network_server : networking2::network_server
                 bool any = send_all();
                 any = receive_messages() || any;
                 handle_disconnects();
+                poll();
 
                 if(!any)
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -230,7 +231,7 @@ struct steam_network_server : networking2::network_server
         return true;
     }
 
-    void poll() override
+    void poll()
     {
         SteamAPI_ISteamNetworkingSockets_RunCallbacks(sns);
     }

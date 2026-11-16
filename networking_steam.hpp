@@ -4,6 +4,7 @@
 #include <string>
 #include <stdint.h>
 #include <vector>
+#include <assert.h>
 
 void test_steam_networking(int appid);
 
@@ -33,11 +34,10 @@ namespace networking2
 
     struct network_server
     {
-        network_server();
+        network_server(){assert(false);}
 
-        virtual void queue_send(connection_send_data&& to_send);
-        virtual void queue_receive(connection_received_data& to_receive);
-        virtual void poll();
+        virtual void queue_send(connection_send_data&& to_send){assert(false);}
+        virtual void queue_receive(connection_received_data& to_receive){assert(false);}
 
         virtual ~network_server(){}
     };
