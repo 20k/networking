@@ -116,6 +116,7 @@ struct steam_network_server
             {
                 bool any = send_all();
                 any = receive_messages() || any;
+                handle_disconnects();
 
                 if(!any)
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -126,6 +127,25 @@ struct steam_network_server
     void send_to(HSteamNetConnection conn, std::string_view data)
     {
         SteamAPI_ISteamNetworkingSockets_SendMessageToConnection(sns, conn, data.data(), data.size(), k_nSteamNetworkingSend_ReliableNoNagle, nullptr);
+    }
+
+    void handle_disconnects()
+    {
+        std::vector<uint64_t> disconnects;
+
+        {
+            std::lock_guard guard(disconnect_lock);
+            disconnects = std::move(force_disconnect);
+            force_disconnect.clear();
+        }
+
+        for(uint64_t id : disconnects)
+        {
+            HSteamNetConnection conn = (HSteamNetConnection)id;
+            SteamAPI_ISteamNetworkingSockets_CloseConnection(sns, conn, 0, nullptr, false);
+
+            clients.erase((HSteamNetConnection)id);
+        }
     }
 
     bool send_all()
