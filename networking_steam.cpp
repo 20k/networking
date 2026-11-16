@@ -7,6 +7,16 @@
 #include <steamworks_sdk_163/sdk/public/steam/isteamnetworkingutils.h>
 #include <assert.h>
 #include <flat_set>
+#include <string_view>
+#include <string>
+#include <mutex>
+#include <stdint.h>
+
+struct write_data
+{
+    uint64_t id = 0;
+    std::string data;
+};
 
 void global_on_status_changed(SteamNetConnectionStatusChangedCallback_t* info);
 
@@ -19,9 +29,12 @@ struct steam_network
 {
     HSteamListenSocket sock;
     HSteamNetPollGroup poll_group;
-    ISteamNetworkingSockets* sns;
+    ISteamNetworkingSockets* sns = nullptr;
 
     std::flat_set<HSteamNetConnection> clients;
+
+    std::mutex msgs_lock;
+    std::vector<write_data> msgs;
 
     steam_network()
     {
@@ -49,12 +62,40 @@ struct steam_network
 
         poll_group = SteamAPI_ISteamNetworkingSockets_CreatePollGroup(sns);
         assert(poll_group != k_HSteamNetPollGroup_Invalid);
+    }
 
+    void send_to(HSteamNetConnection conn, std::string_view data)
+    {
+        SteamAPI_ISteamNetworkingSockets_SendMessageToConnection(sns, conn, data.data(), data.size(), k_nSteamNetworkingSend_ReliableNoNagle, nullptr);
+    }
+
+    void receive_messages()
+    {
+        ISteamNetworkingMessage* message = nullptr;
+        int num = SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnPollGroup(sns, poll_group, &message, 1);
+
+        assert(num >= 0);
+
+        if(num == 0)
+            return;
+
+        assert(clients.find(message->m_conn) != clients.end());
+
+        std::string data((char*)message->m_pData, message->m_cbSize);
+        message->Release();
+
+        {
+            std::lock_guard guard(msgs_lock);
+
+            write_data& wd = msgs.emplace_back();
+            wd.data = std::move(data);
+            wd.id = (uint64_t)message->m_conn;
+        }
     }
 
     void poll()
     {
-
+        SteamAPI_ISteamNetworkingSockets_RunCallbacks(sns);
     }
 
     void on_status_changed(SteamNetConnectionStatusChangedCallback_t* info)
