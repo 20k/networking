@@ -240,6 +240,9 @@ struct steam_network_server
 
     ~steam_network_server()
     {
+        shutdown = true;
+        thrd.join();
+
         ISteamNetworkingSockets* sns = SteamAPI_SteamGameServerNetworkingSockets_SteamAPI();
         assert(sns);
 
