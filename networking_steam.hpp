@@ -1,6 +1,48 @@
 #ifndef NETWORKING_STEAM_HPP_INCLUDED
 #define NETWORKING_STEAM_HPP_INCLUDED
 
+#include <string>
+#include <stdint.h>
+#include <vector>
+
 void test_steam_networking(int appid);
+
+namespace networking2
+{
+    struct write_data
+    {
+        uint64_t id = 0;
+        std::string data;
+    };
+
+    struct connection_received_data
+    {
+        std::vector<uint64_t> new_clients;
+        std::vector<uint64_t> disconnected_clients;
+        std::vector<write_data> read_queue;
+    };
+
+    struct connection_send_data
+    {
+        std::vector<write_data> write_queue;
+        std::vector<uint64_t> force_disconnection_list;
+
+        void disconnect(uint64_t id);
+        void write_to(write_data&& dat);
+    };
+
+    struct network_server
+    {
+        network_server();
+
+        virtual void queue_send(connection_send_data&& to_send);
+        virtual void queue_receive(connection_received_data& to_receive);
+        virtual void poll();
+
+        virtual ~network_server(){}
+    };
+}
+
+networking2::network_server* start_network_server();
 
 #endif // NETWORKING_STEAM_HPP_INCLUDED

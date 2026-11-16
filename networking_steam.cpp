@@ -14,31 +14,14 @@
 #include <thread>
 #include <atomic>
 
-namespace networking2
+void networking2::connection_send_data::disconnect(uint64_t id)
 {
-    struct write_data
-    {
-        uint64_t id = 0;
-        std::string data;
-    };
+    force_disconnection_list.push_back(id);
+}
 
-    struct connection_received_data
-    {
-        std::vector<uint64_t> new_clients;
-        std::vector<uint64_t> disconnected_clients;
-        std::vector<write_data> read_queue;
-    };
-
-    struct connection_send_data
-    {
-        std::vector<write_data> write_queue;
-        std::vector<uint64_t> force_disconnection_list;
-
-        void disconnect(uint64_t id)
-        {
-            force_disconnection_list.push_back(id);
-        }
-    };
+void networking2::connection_send_data::write_to(write_data&& dat)
+{
+    write_queue.push_back(std::move(dat));
 }
 
 namespace
@@ -64,7 +47,7 @@ struct steam_network_server;
 //this is such a capi-ism
 steam_network_server* net = nullptr;
 
-struct steam_network_server
+struct steam_network_server : networking2::network_server
 {
     HSteamListenSocket sock;
     HSteamNetPollGroup poll_group;
@@ -80,6 +63,12 @@ struct steam_network_server
 
     std::mutex disconnect_lock;
     std::vector<uint64_t> force_disconnect;
+
+    std::mutex new_disconnected_lock;
+    std::vector<uint64_t> new_disconnected;
+
+    std::mutex new_clients_lock;
+    std::vector<uint64_t> new_clients;
 
     std::atomic_bool shutdown{false};
     std::jthread thrd;
@@ -129,6 +118,12 @@ struct steam_network_server
         SteamAPI_ISteamNetworkingSockets_SendMessageToConnection(sns, conn, data.data(), data.size(), k_nSteamNetworkingSend_ReliableNoNagle, nullptr);
     }
 
+    void add_disconnected(uint64_t id)
+    {
+        std::lock_guard guard(disconnect_lock);
+        new_disconnected.push_back(id);
+    }
+
     void handle_disconnects()
     {
         std::vector<uint64_t> disconnects;
@@ -144,7 +139,7 @@ struct steam_network_server
             HSteamNetConnection conn = (HSteamNetConnection)id;
             SteamAPI_ISteamNetworkingSockets_CloseConnection(sns, conn, 0, nullptr, false);
 
-            clients.erase((HSteamNetConnection)id);
+            //clients.erase((HSteamNetConnection)id);
         }
     }
 
@@ -166,7 +161,7 @@ struct steam_network_server
         return to_write.size() > 0;
     }
 
-    void queue_send(networking2::connection_send_data&& to_send)
+    void queue_send(networking2::connection_send_data&& to_send) override
     {
         {
             std::lock_guard guard(write_lock);
@@ -178,6 +173,27 @@ struct steam_network_server
             std::lock_guard guard(disconnect_lock);
             move_append(force_disconnect, std::move(to_send.force_disconnection_list));
             to_send.force_disconnection_list.clear();
+        }
+    }
+
+    void queue_receive(networking2::connection_received_data& to_receive) override
+    {
+        {
+            std::lock_guard guard(read_lock);
+            to_receive.read_queue = std::move(read_msgs);
+            read_msgs.clear();
+        }
+
+        {
+            std::lock_guard guard(new_disconnected_lock);
+            to_receive.disconnected_clients = std::move(new_disconnected);
+            new_disconnected.clear();
+        }
+
+        {
+            std::lock_guard guard(new_clients_lock);
+            to_receive.new_clients = std::move(new_clients);
+            new_clients.clear();
         }
     }
 
@@ -197,7 +213,7 @@ struct steam_network_server
         {
             ISteamNetworkingMessage* message = messages[i];
 
-            assert(clients.find(message->m_conn) != clients.end());
+            //assert(clients.find(message->m_conn) != clients.end());
 
             std::string data((char*)message->m_pData, message->m_cbSize);
             message->Release();
@@ -214,7 +230,7 @@ struct steam_network_server
         return true;
     }
 
-    void poll()
+    void poll() override
     {
         SteamAPI_ISteamNetworkingSockets_RunCallbacks(sns);
     }
@@ -228,8 +244,10 @@ struct steam_network_server
 
             case k_ESteamNetworkingConnectionState_ClosedByPeer:
             case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-                if(auto it = clients.find(info->m_hConn); it != clients.end())
-                    clients.erase(it);
+                //if(auto it = clients.find(info->m_hConn); it != clients.end())
+                //    clients.erase(it);
+
+                add_disconnected((uint64_t)info->m_hConn);
 
                 SteamAPI_ISteamNetworkingSockets_CloseConnection(sns, info->m_hConn, 0, nullptr, false);
                 break;
@@ -249,7 +267,12 @@ struct steam_network_server
                     break;
                 }
 
-                clients.insert(info->m_hConn);
+                //clients.insert(info->m_hConn);
+
+                {
+                    std::lock_guard guard(new_clients_lock);
+                    new_clients.push_back((uint64_t)info->m_hConn);
+                }
 
                 break;
 
@@ -304,4 +327,12 @@ void test_steam_networking(int appid)
     while(1){}
 
     assert(false);
+}
+
+networking2::network_server* start_network_server()
+{
+    assert(!net);
+
+    net = new steam_network_server;
+    return net;
 }
