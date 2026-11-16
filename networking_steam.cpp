@@ -33,8 +33,11 @@ struct steam_network
 
     std::flat_set<HSteamNetConnection> clients;
 
-    std::mutex msgs_lock;
-    std::vector<write_data> msgs;
+    std::mutex write_lock;
+    std::vector<write_data> write_msgs;
+
+    std::mutex read_lock;
+    std::vector<write_data> read_msgs;
 
     steam_network()
     {
@@ -69,6 +72,28 @@ struct steam_network
         SteamAPI_ISteamNetworkingSockets_SendMessageToConnection(sns, conn, data.data(), data.size(), k_nSteamNetworkingSend_ReliableNoNagle, nullptr);
     }
 
+    void send_all()
+    {
+        std::vector<write_data> to_write;
+
+        {
+            std::lock_guard guard(write_lock);
+            to_write = std::move(write_msgs);
+            write_msgs.clear();
+        }
+
+        for(const write_data& d : to_write)
+        {
+            send_to((HSteamNetConnection)d.id, d.data);
+        }
+    }
+
+    void queue_send(write_data&& data)
+    {
+        std::lock_guard guard(write_lock);
+        write_msgs.push_back(std::move(data));
+    }
+
     void receive_messages()
     {
         ISteamNetworkingMessage* message = nullptr;
@@ -85,9 +110,9 @@ struct steam_network
         message->Release();
 
         {
-            std::lock_guard guard(msgs_lock);
+            std::lock_guard guard(read_lock);
 
-            write_data& wd = msgs.emplace_back();
+            write_data& wd = read_msgs.emplace_back();
             wd.data = std::move(data);
             wd.id = (uint64_t)message->m_conn;
         }
