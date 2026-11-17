@@ -4,7 +4,7 @@
 #include <steamworks_sdk_163/sdk/public/steam/steam_gameserver.h>
 #else
 #define STEAMNETWORKINGSOCKETS_OPENSOURCE
-#define STEAMNETWORKINGSOCKETS_STATIC_LINK
+//#define STEAMNETWORKINGSOCKETS_STATIC_LINK
 #include <steamnetworkingsockets.h>
 #include <isteamnetworkingutils.h>
 #include <steamnetworkingsockets_flat.h>
