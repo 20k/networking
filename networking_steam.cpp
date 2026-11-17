@@ -576,8 +576,16 @@ struct steam_network_client : networking2::network_client
             sns = SteamAPI_SteamNetworkingSockets_SteamAPI();
             #endif
             #else
-            SteamDatagramErrMsg errMsg;
-            assert(!GameNetworkingSockets_Init(nullptr, errMsg));
+            SteamDatagramErrMsg errMsg = {};
+            bool success = GameNetworkingSockets_Init(nullptr, errMsg);
+
+            if(!success)
+            {
+                printf("Init error %s\n", errMsg);
+                assert(false);
+            }
+
+            sns = SteamAPI_SteamNetworkingSockets_v009();
             #endif
 
             base = new network_base(sns);
