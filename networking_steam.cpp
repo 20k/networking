@@ -408,7 +408,7 @@ struct steam_network_client : networking2::network_client
     {
         SteamNetworkingIdentity sni;
 
-        std::cout << "Connecting to " << csteam_id << std::endl;
+        std::cout << "Internal connecting to " << csteam_id << " address " << address << std::endl;
 
         sni.SetSteamID64(csteam_id);
 
@@ -428,7 +428,8 @@ struct steam_network_client : networking2::network_client
 
         #ifdef USE_IP
         SteamNetworkingIPAddr addr;
-        assert(addr.ParseString((address + ":" + std::to_string(port)).c_str()));
+        assert(addr.ParseString(address.c_str()));
+        addr.m_port = port;
         sni.SetIPAddr(addr);
 
         conn = SteamAPI_ISteamNetworkingSockets_ConnectByIPAddress(sns, addr, cfgs.size(), cfgs.data());
