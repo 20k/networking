@@ -605,7 +605,21 @@ struct steam_network_client : networking2::network_client
         sns = SteamAPI_SteamNetworkingSockets_v009();
         #endif
 
+        #ifdef SOCKETS_STEAM
         SteamAPI_ISteamNetworkingSockets_InitAuthentication(sns);
+
+        SteamNetAuthenticationStatus_t details = {};
+        ESteamNetworkingAvailability avail = SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus(sns, &details);
+
+        while(avail != 100)
+        {
+            SteamAPI_RunCallbacks();
+            avail = SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus(sns, &details);
+        }
+
+        assert(avail == 100);
+        printf("I Am Authenticated On Steam Relay\n");
+        #endif
     }
 
     void connect(uint64_t csteam_id, uint16_t port, const std::string& address) override
@@ -615,9 +629,13 @@ struct steam_network_client : networking2::network_client
         boot_steamapi();
 
         if(base)
+        {
             base->stop();
-        else
-            base = new network_base(sns);
+            delete base;
+            base = nullptr;
+        }
+
+        base = new network_base(sns);
 
         SteamNetworkingIdentity sni;
         sni.Clear();
