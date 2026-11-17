@@ -14,6 +14,7 @@
 #include <thread>
 #include <atomic>
 #include <iostream>
+#include <zlib.h>
 
 void networking2::connection_send_data::disconnect(uint64_t id)
 {
@@ -47,6 +48,86 @@ struct steam_network_server;
 
 //this is such a capi-ism
 steam_network_server* net = nullptr;
+
+std::string compress(const std::string& in)
+{
+    z_stream strm;
+
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
+
+    int level = 9;
+
+    int err = deflateInit(&strm, level);
+    assert(err == Z_OK);
+
+    std::string out;
+
+    strm.next_in = (unsigned char*)(const_cast<char*>(in.data()));
+    strm.avail_in = in.size();
+
+    do {
+        std::string intermediate;
+        intermediate.resize(in.size());
+
+        strm.avail_out = intermediate.size();
+        strm.next_out = (unsigned char*)(const_cast<char*>(intermediate.data()));
+
+        int err = deflate(&strm, 1);
+        assert(err != Z_STREAM_ERROR);
+        int have = intermediate.size() - strm.avail_out;
+
+        out += std::string(intermediate.begin(), intermediate.begin() + have);
+    } while(strm.avail_out == 0);
+
+    (void)deflateEnd(&strm);
+
+    return out;
+}
+
+std::optional<std::string> decompress(const std::string& in)
+{
+    z_stream strm;
+
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
+    strm.avail_in = 0;
+    strm.next_in = Z_NULL;
+
+    int err = inflateInit(&strm);
+    assert(err == Z_OK);
+
+    strm.next_in = (unsigned char*)(const_cast<char*>(in.data()));
+    strm.avail_in = in.size();
+
+    std::string out;
+
+    do {
+        std::string intermediate;
+        intermediate.resize(std::max(in.size(), 1024ULL));
+
+        strm.avail_out = intermediate.size();
+        strm.next_out = (unsigned char*)(const_cast<char*>(intermediate.data()));
+
+        int err = inflate(&strm, 1);
+
+        if(err == Z_STREAM_ERROR)
+        {
+            (void)inflateEnd(&strm);
+            return std::nullopt;
+        }
+
+        int have = intermediate.size() - strm.avail_out;
+
+        out += std::string(intermediate.begin(), intermediate.begin() + have);
+    } while(strm.avail_out == 0);
+
+    (void)inflateEnd(&strm);
+
+    return out;
+}
 
 struct network_base
 {
@@ -140,7 +221,7 @@ struct network_base
         {
             //printf("Sent Message %s\n", d.data.c_str());
 
-            send_to((HSteamNetConnection)d.id, d.data);
+            send_to((HSteamNetConnection)d.id, compress(d.data));
 
             SteamAPI_ISteamNetworkingSockets_FlushMessagesOnConnection(sns, (HSteamNetConnection)d.id);
         }
@@ -208,13 +289,24 @@ struct network_base
             std::string data((char*)message->m_pData, message->m_cbSize);
             message->Release();
 
+            auto data_opt = decompress(data);
+
+            if(data_opt == std::nullopt)
+            {
+                printf("Bad Decompress\n");
+
+                std::lock_guard guard(disconnect_lock);
+                force_disconnect.push_back((uint64_t)message->m_conn);
+                continue;
+            }
+
             //printf("Got data %s\n", data.c_str());
 
             {
                 std::lock_guard guard(read_lock);
 
                 write_data& wd = read_msgs.emplace_back();
-                wd.data = std::move(data);
+                wd.data = std::move(data_opt.value());
                 wd.id = (uint64_t)message->m_conn;
 
                 //printf("Id %lli\n", wd.id);
