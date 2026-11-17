@@ -294,6 +294,7 @@ struct steam_network_server : networking2::network_server
     {
         printf("Preinit\n");
 
+        #if 1
         assert(SteamGameServer_Init(0, port, 1300, eServerModeNoAuthentication, "1.0.0.0"));
 
         ISteamGameServer* sgs = SteamAPI_SteamGameServer();
@@ -305,22 +306,37 @@ struct steam_network_server : networking2::network_server
 
         sns = SteamAPI_SteamGameServerNetworkingSockets_SteamAPI();
         assert(sns);
+        #else
+        SteamAPI_Init();
+
+        sns = SteamAPI_SteamNetworkingSockets_SteamAPI();
+        #endif
 
         base = new network_base(sns);
 
         ISteamNetworkingUtils* snu = SteamAPI_SteamNetworkingUtils_SteamAPI();
         assert(snu);
 
-        SteamNetworkingConfigValue_t opt;
-        opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)global_on_status_changed);
+        std::vector<SteamNetworkingConfigValue_t> cfgs;
+
+        {
+            SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
+            opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)global_on_status_changed);
+        }
+
+        {
+            SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
+            opt.SetInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 2);
+        }
+
 
         #ifdef USE_IP
         SteamNetworkingIPAddr addr;
         addr.Clear();
         addr.SetIPv4(0, port);
-        sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketIP(sns, addr, 1, &opt);
+        sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketIP(sns, addr, cfgs.size(), cfgs.data());
         #else
-        sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P(sns, 0, 1, &opt);
+        sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P(sns, 0, cfgs.size(), cfgs.data());
         #endif
 
         assert(sock != k_HSteamListenSocket_Invalid);
