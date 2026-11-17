@@ -161,15 +161,15 @@ struct network_base
     std::atomic_bool shutdown{false};
     std::jthread thrd;
 
-    void start()
+    void start(bool is_server)
     {
         poll_group = SteamAPI_ISteamNetworkingSockets_CreatePollGroup(sns);
         assert(poll_group != k_HSteamNetPollGroup_Invalid);
 
-        thrd = std::jthread([this]{
+        thrd = std::jthread([this, is_server]{
             while(!shutdown)
             {
-                poll();
+                poll(is_server);
                 bool any = send_all();
                 any = receive_messages() || any;
                 handle_disconnects();
@@ -320,9 +320,13 @@ struct network_base
         return true;
     }
 
-    void poll()
+    void poll(bool is_server)
     {
         SteamAPI_ISteamNetworkingSockets_RunCallbacks(sns);
+
+        //surprise!
+        if(is_server)
+            SteamGameServer_RunCallbacks();
     }
 
     void on_status_changed(SteamNetConnectionStatusChangedCallback_t* info)
@@ -424,6 +428,8 @@ struct steam_network_server : networking2::network_server
         sns = SteamAPI_SteamGameServerNetworkingSockets_SteamAPI();
         assert(sns);
 
+        SteamAPI_ISteamNetworkingSockets_InitAuthentication(sns);
+
         SteamNetworkingIdentity sni;
         sni.Clear();
 
@@ -499,9 +505,19 @@ struct steam_network_server : networking2::network_server
 
         assert(sock != k_HSteamListenSocket_Invalid);
 
-        base->start();
+        base->start(true);
 
+        #ifdef SOCKETS_STEAM
         printf("Started Networking Steam\n");
+
+        SteamNetAuthenticationStatus_t details = {};
+        ESteamNetworkingAvailability avail = SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus(sns, &details);
+
+        while(avail != 100)
+            avail = SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus(sns, &details);
+
+        assert(avail == 100);
+        #endif
     }
 
     void send_bulk(networking2::connection_send_data&& to_send) override
@@ -643,7 +659,7 @@ struct steam_network_client : networking2::network_client
         #endif
         in_progress = true;
 
-        base->start();
+        base->start(false);
     }
 
     void send_bulk(networking2::connection_send_data&& to_send) override
