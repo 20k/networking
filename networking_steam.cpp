@@ -414,7 +414,6 @@ struct steam_network_server : networking2::network_server
         printf("Preinit\n");
 
         #ifdef SOCKETS_STEAM
-        #if 1
         assert(SteamGameServer_Init(0, port, 1300, eServerModeAuthentication, "1.0.0.0"));
 
         ISteamGameServer* sgs = SteamAPI_SteamGameServer();
@@ -441,15 +440,9 @@ struct steam_network_server : networking2::network_server
         assert(SteamAPI_ISteamNetworkingSockets_GetIdentity(sns, &sni));
 
         std::cout << "SNI Steam Id " << sni.GetSteamID64() << std::endl;
-        #else
-        SteamAPI_Init();
-
-        sns = SteamAPI_SteamNetworkingSockets_SteamAPI();
-        #endif
 
         ISteamNetworkingUtils* snu = SteamAPI_SteamNetworkingUtils_SteamAPI();
         assert(snu);
-
         #else
         SteamDatagramErrMsg errMsg;
         assert(GameNetworkingSockets_Init(nullptr, errMsg));
