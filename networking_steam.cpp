@@ -281,13 +281,14 @@ struct steam_network_server : networking2::network_server
 
     steam_network_server(){}
 
-    void host(const std::string& address, uint16_t port) override
+    void host(const std::string& address, uint16_t port, const std::string& steamid_token) override
     {
         assert(SteamGameServer_Init(0, port, 1233, eServerModeNoAuthentication, address.c_str()));
 
         ISteamGameServer* sgs = SteamAPI_SteamGameServer();
 
-        SteamAPI_ISteamGameServer_LogOnAnonymous(sgs);
+        SteamAPI_ISteamGameServer_LogOn(sgs, steamid_token.c_str());
+        //SteamAPI_ISteamGameServer_LogOnAnonymous(sgs);
 
         sns = SteamAPI_SteamGameServerNetworkingSockets_SteamAPI();
         assert(sns);
