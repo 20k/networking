@@ -590,20 +590,8 @@ struct steam_network_client : networking2::network_client
         has_steamapi = true;
 
         #ifdef SOCKETS_STEAM
-        #if 0
-        assert(SteamGameServer_Init(0, port + 1, 1301, eServerModeNoAuthentication, "1.0.0.0"));
-
-        ISteamGameServer* sgs = SteamAPI_SteamGameServer();
-        SteamAPI_ISteamGameServer_LogOnAnonymous(sgs);
-
-        std::cout << "Non steam client workaround hosted steam ID " << SteamAPI_ISteamGameServer_GetSteamID(sgs) << " on port " << port << std::endl;
-
-        sns = SteamAPI_SteamGameServerNetworkingSockets_SteamAPI();
-        assert(sns);
-        #else
         SteamAPI_Init();
         sns = SteamAPI_SteamNetworkingSockets_SteamAPI();
-        #endif
         #else
         SteamDatagramErrMsg errMsg = {};
         bool success = GameNetworkingSockets_Init(nullptr, errMsg);
@@ -627,13 +615,9 @@ struct steam_network_client : networking2::network_client
         boot_steamapi();
 
         if(base)
-        {
-            //I intentionally leak the connection, as steam callbacks may still be executing
             base->stop();
-            base = nullptr;
-        }
-
-        base = new network_base(sns);
+        else
+            base = new network_base(sns);
 
         SteamNetworkingIdentity sni;
         sni.Clear();
