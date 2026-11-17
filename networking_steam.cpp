@@ -206,6 +206,8 @@ struct network_base
             std::string data((char*)message->m_pData, message->m_cbSize);
             message->Release();
 
+            //printf("Got data %s\n", data.c_str());
+
             {
                 std::lock_guard guard(read_lock);
 
