@@ -511,10 +511,11 @@ struct steam_network_server : networking2::network_server
         SteamNetAuthenticationStatus_t details = {};
         ESteamNetworkingAvailability avail = SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus(sns, &details);
 
-        while(avail != 100)
+        //callbacks are pumped by base thread
+        while(avail != k_ESteamNetworkingAvailability_Current)
             avail = SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus(sns, &details);
 
-        assert(avail == 100);
+        assert(avail == k_ESteamNetworkingAvailability_Current);
         #endif
     }
 
@@ -611,13 +612,13 @@ struct steam_network_client : networking2::network_client
         SteamNetAuthenticationStatus_t details = {};
         ESteamNetworkingAvailability avail = SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus(sns, &details);
 
-        while(avail != 100)
+        while(avail != k_ESteamNetworkingAvailability_Current)
         {
             SteamAPI_RunCallbacks();
             avail = SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus(sns, &details);
         }
 
-        assert(avail == 100);
+        assert(avail == k_ESteamNetworkingAvailability_Current);
         printf("I Am Authenticated On Steam Relay\n");
         #endif
     }
@@ -631,6 +632,9 @@ struct steam_network_client : networking2::network_client
         if(base)
         {
             base->stop();
+            //callbacks can no longer be pumped, as the socket callbacks are only pumped from the thread in base
+            //steamapi callback pumping does not matter luckily
+            //but do need to be aware for other steam system
             delete base;
             base = nullptr;
         }
@@ -709,8 +713,6 @@ struct steam_network_client : networking2::network_client
 
     void on_status_changed(SteamNetConnectionStatusChangedCallback_t* info)
     {
-        printf("StatusChange\n");
-
         assert(info->m_hConn == conn || conn == k_HSteamNetConnection_Invalid);
 
         switch(info->m_info.m_eState)
