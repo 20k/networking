@@ -290,7 +290,9 @@ struct steam_network_server : networking2::network_server
 
     void host(const std::string& address, uint16_t port, const std::string& steamid_token) override
     {
-        assert(SteamGameServer_Init(0x7f000001, port, 1233, eServerModeNoAuthentication, address.c_str()));
+        printf("Preinit\n");
+
+        assert(SteamGameServer_Init(0, port, 1233, eServerModeNoAuthentication, "1.0.0.0"));
 
         ISteamGameServer* sgs = SteamAPI_SteamGameServer();
 
