@@ -51,7 +51,7 @@ namespace networking2
         virtual bool client_connected_to_server();
         virtual bool connection_in_progress();
 
-        virtual void connect(uint64_t csteam_id, uint16_t port){assert(false);}
+        virtual void connect(uint64_t csteam_id, uint16_t port, const std::string& address){assert(false);}
 
         virtual void send_bulk(connection_send_data&& to_send){assert(false);}
         virtual void receive_bulk(connection_received_data& to_receive){assert(false);}

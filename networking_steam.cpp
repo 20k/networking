@@ -404,14 +404,9 @@ struct steam_network_client : networking2::network_client
         base = new network_base(sns);
     }
 
-    void connect(uint64_t csteam_id, uint16_t port) override
+    void connect(uint64_t csteam_id, uint16_t port, const std::string& address) override
     {
         SteamNetworkingIdentity sni;
-
-        //SteamNetworkingIPAddr addr;
-        //assert(addr.ParseString((address + ":" + std::to_string(port)).c_str()));
-
-        //sni.SetIPAddr(addr);
 
         std::cout << "Connecting to " << csteam_id << std::endl;
 
@@ -431,7 +426,15 @@ struct steam_network_client : networking2::network_client
 
         std::cout << "Connecting port " << port << std::endl;
 
+        #ifdef USE_IP
+        SteamNetworkingIPAddr addr;
+        assert(addr.ParseString((address + ":" + std::to_string(port)).c_str()));
+        sni.SetIPAddr(addr);
+
+        conn = SteamAPI_ISteamNetworkingSockets_ConnectByIPAddress(sns, addr, cfgs.size(), cfgs.data());
+        #else
         conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P(sns, sni, port, cfgs.size(), cfgs.data());
+        #endif
         in_progress = true;
 
         base->start();
@@ -439,8 +442,6 @@ struct steam_network_client : networking2::network_client
 
     void send_bulk(networking2::connection_send_data&& to_send) override
     {
-        return;
-
         if(!client_connected)
             return;
 
@@ -449,8 +450,6 @@ struct steam_network_client : networking2::network_client
 
     void receive_bulk(networking2::connection_received_data& to_receive) override
     {
-        return;
-
         if(!client_connected)
             return;
 
