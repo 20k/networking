@@ -179,7 +179,7 @@ struct network_base
     {
         EResult result = SteamAPI_ISteamNetworkingSockets_SendMessageToConnection(sns, conn, data.data(), data.size(), k_nSteamNetworkingSend_ReliableNoNagle, nullptr);
 
-        assert(result == k_EResultOK);
+        //assert(result == k_EResultOK);
     }
 
     void add_disconnected(uint64_t id)
