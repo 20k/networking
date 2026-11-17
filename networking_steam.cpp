@@ -86,7 +86,7 @@ std::string compress(const std::string& in)
     return out;
 }
 
-std::optional<std::string> decompress(const std::string& in)
+std::optional<std::string> decompress(std::string_view in)
 {
     z_stream strm;
 
@@ -286,10 +286,9 @@ struct network_base
 
             //assert(clients.find(message->m_conn) != clients.end());
 
-            std::string data((char*)message->m_pData, message->m_cbSize);
-            message->Release();
+            auto data_opt = decompress(std::string_view((char*)message->m_pData, message->m_cbSize));
 
-            auto data_opt = decompress(data);
+            message->Release();
 
             if(data_opt == std::nullopt)
             {
