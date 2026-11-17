@@ -602,6 +602,8 @@ struct steam_network_client : networking2::network_client
             sns = SteamAPI_SteamNetworkingSockets_v009();
             #endif
 
+            SteamAPI_ISteamNetworkingSockets_InitAuthentication(sns);
+
             base = new network_base(sns);
         }
 
@@ -644,6 +646,19 @@ struct steam_network_client : networking2::network_client
         in_progress = true;
 
         base->start();
+
+        #ifdef SOCKETS_STEAM
+        SteamNetAuthenticationStatus_t details = {};
+        ESteamNetworkingAvailability avail = SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus(sns, &details);
+
+        while(avail != 100)
+        {
+            avail = SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus(sns, &details);
+        }
+
+        assert(avail == 100);
+        printf("I Am Authenticated On Steam Relay\n");
+        #endif
     }
 
     void send_bulk(networking2::connection_send_data&& to_send) override
