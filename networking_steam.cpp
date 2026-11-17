@@ -734,12 +734,13 @@ struct steam_network_client : networking2::network_client
 
             case k_ESteamNetworkingConnectionState_ClosedByPeer:
             case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-                client_connected = false;
-                in_progress = false;
                 printf("Bad Connection\n");
 
                 SteamAPI_ISteamNetworkingSockets_CloseConnection(sns, info->m_hConn, 0, nullptr, false);
                 conn = k_HSteamNetConnection_Invalid;
+
+                client_connected = false;
+                in_progress = false;
                 break;
 
             case k_ESteamNetworkingConnectionState_Connecting:
