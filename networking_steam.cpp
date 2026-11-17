@@ -1,12 +1,16 @@
 #include "networking_steam.hpp"
+#ifdef SOCKETS_STEAM
 #include <steamworks_sdk_163/sdk/public/steam/steam_api_flat.h>
-#include <steamworks_sdk_163/sdk/public/steam/steam_api.h>
-#include <steamworks_sdk_163/sdk/public/steam/steam_api_common.h>
 #include <steamworks_sdk_163/sdk/public/steam/steam_gameserver.h>
-#include <steamworks_sdk_163/sdk/public/steam/isteamnetworkingsockets.h>
-#include <steamworks_sdk_163/sdk/public/steam/isteamnetworkingutils.h>
+#else
+#define STEAMNETWORKINGSOCKETS_OPENSOURCE
+#define STEAMNETWORKINGSOCKETS_STATIC_LINK
+#include <steamnetworkingsockets.h>
+#include <isteamnetworkingutils.h>
+#include <steamnetworkingsockets_flat.h>
+#endif
 #include <assert.h>
-#include <flat_set>
+//#include <flat_set>
 #include <string_view>
 #include <string>
 #include <mutex>
@@ -399,6 +403,7 @@ struct steam_network_server : networking2::network_server
     {
         printf("Preinit\n");
 
+        #ifdef SOCKETS_STEAM
         #if 1
         assert(SteamGameServer_Init(0, port, 1300, eServerModeNoAuthentication, "1.0.0.0"));
 
@@ -417,10 +422,20 @@ struct steam_network_server : networking2::network_server
         sns = SteamAPI_SteamNetworkingSockets_SteamAPI();
         #endif
 
-        base = new network_base(sns);
-
         ISteamNetworkingUtils* snu = SteamAPI_SteamNetworkingUtils_SteamAPI();
         assert(snu);
+
+        #else
+        SteamDatagramErrMsg errMsg;
+        assert(GameNetworkingSockets_Init(nullptr, errMsg));
+
+        sns = SteamAPI_SteamNetworkingSockets_v009();
+
+        ISteamNetworkingUtils* snu = SteamAPI_SteamNetworkingUtils_v003();
+        assert(snu);
+        #endif
+
+        base = new network_base(sns);
 
         std::vector<SteamNetworkingConfigValue_t> cfgs;
 
@@ -489,19 +504,22 @@ struct steam_network_server : networking2::network_server
     {
         base->stop();
 
-        ISteamNetworkingSockets* sns = SteamAPI_SteamGameServerNetworkingSockets_SteamAPI();
-        assert(sns);
-
+        #ifdef SOCKETS_STEAM
         ISteamGameServer* sgs = SteamAPI_SteamGameServer();
         assert(sgs);
+        #endif
 
         //follow destruct order from valve's example chat
         //https://github.com/ValveSoftware/GameNetworkingSockets/blob/master/examples/example_chat.cpp
         SteamAPI_ISteamNetworkingSockets_CloseListenSocket(sns, sock);
         SteamAPI_ISteamNetworkingSockets_DestroyPollGroup(sns, base->poll_group);
 
+        #ifdef SOCKETS_STEAM
         SteamAPI_ISteamGameServer_LogOff(sgs);
         SteamGameServer_Shutdown();
+        #else
+        GameNetworkingSockets_Kill();
+        #endif
 
         delete base;
         base = nullptr;
@@ -542,6 +560,7 @@ struct steam_network_client : networking2::network_client
     {
         if(base == nullptr)
         {
+            #ifdef SOCKETS_STEAM
             #if 0
             assert(SteamGameServer_Init(0, port + 1, 1301, eServerModeNoAuthentication, "1.0.0.0"));
 
@@ -555,6 +574,10 @@ struct steam_network_client : networking2::network_client
             #else
             SteamAPI_Init();
             sns = SteamAPI_SteamNetworkingSockets_SteamAPI();
+            #endif
+            #else
+            SteamDatagramErrMsg errMsg;
+            assert(!GameNetworkingSockets_Init(nullptr, errMsg));
             #endif
 
             base = new network_base(sns);
