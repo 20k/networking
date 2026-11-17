@@ -136,7 +136,11 @@ struct network_base
 
         for(const write_data& d : to_write)
         {
+            printf("Sent Message %s\n", d.data.c_str());
+
             send_to((HSteamNetConnection)d.id, d.data);
+
+            SteamAPI_ISteamNetworkingSockets_FlushMessagesOnConnection(sns, (HSteamNetConnection)d.id);
         }
 
         return to_write.size() > 0;
@@ -472,6 +476,9 @@ struct steam_network_client : networking2::network_client
     {
         if(!client_connected)
             return;
+
+        for(write_data& d : to_send.write_queue)
+            d.id = conn;
 
         base->send_bulk(std::move(to_send));
     }
