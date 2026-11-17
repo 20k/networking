@@ -317,7 +317,7 @@ struct steam_network_server : networking2::network_server
         SteamNetworkingConfigValue_t opt;
         opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)::global_on_status_changed);
 
-        sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P(sns, 0, 0, nullptr);
+        sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P(sns, 0, 1, &opt);
         assert(sock != k_HSteamListenSocket_Invalid);
 
         base->start();
