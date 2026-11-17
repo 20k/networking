@@ -442,6 +442,11 @@ struct steam_network_client : networking2::network_client
             opt.SetInt32(k_ESteamNetworkingConfig_P2P_Transport_ICE_Enable, 0);
         }
 
+        {
+            SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
+            opt.SetInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 2);
+        }
+
         std::cout << "Connecting port " << port << std::endl;
 
         #ifdef USE_IP
