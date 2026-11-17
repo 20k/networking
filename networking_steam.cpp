@@ -99,7 +99,6 @@ struct network_base
         SteamAPI_ISteamNetworkingSockets_SendMessageToConnection(sns, conn, data.data(), data.size(), k_nSteamNetworkingSend_ReliableNoNagle, nullptr);
     }
 
-
     void add_disconnected(uint64_t id)
     {
         std::lock_guard guard(disconnect_lock);
@@ -220,6 +219,8 @@ struct network_base
 
     void on_status_changed(SteamNetConnectionStatusChangedCallback_t* info)
     {
+        printf("Status change\n");
+
         switch(info->m_info.m_eState)
         {
             case k_ESteamNetworkingConnectionState_None:
@@ -230,6 +231,8 @@ struct network_base
                 //if(auto it = clients.find(info->m_hConn); it != clients.end())
                 //    clients.erase(it);
 
+                printf("Disconnected\n");
+
                 add_disconnected((uint64_t)info->m_hConn);
 
                 SteamAPI_ISteamNetworkingSockets_CloseConnection(sns, info->m_hConn, 0, nullptr, false);
@@ -237,6 +240,8 @@ struct network_base
 
             case k_ESteamNetworkingConnectionState_Connecting:
                 //assert(clients.find(info->m_hConn) == clients.end());
+
+                printf("Connecting\n");
 
                 if(SteamAPI_ISteamNetworkingSockets_AcceptConnection(sns, info->m_hConn) != k_EResultOK)
                 {
@@ -260,6 +265,7 @@ struct network_base
                 break;
 
             case k_ESteamNetworkingConnectionState_Connected:
+                printf("Connected\n");
                 break;
 
             default:
@@ -284,7 +290,7 @@ struct steam_network_server : networking2::network_server
 
     void host(const std::string& address, uint16_t port, const std::string& steamid_token) override
     {
-        assert(SteamGameServer_Init(0, port, 1233, eServerModeNoAuthentication, address.c_str()));
+        assert(SteamGameServer_Init(0x7f000001, port, 1233, eServerModeNoAuthentication, address.c_str()));
 
         ISteamGameServer* sgs = SteamAPI_SteamGameServer();
 
@@ -301,15 +307,15 @@ struct steam_network_server : networking2::network_server
         ISteamNetworkingUtils* snu = SteamAPI_SteamNetworkingUtils_SteamAPI();
         assert(snu);
 
-        SteamNetworkingIPAddr addr;
-        addr.SetIPv4(0, port);
+        //SteamNetworkingIPAddr addr;
+        //addr.SetIPv4(0, 0);
 
         //HSteamListenSocket sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketIP(sns, addr, 0, nullptr);
 
         SteamNetworkingConfigValue_t opt;
         opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)::global_on_status_changed);
 
-        sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P(sns, port, 0, nullptr);
+        sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P(sns, 0, 0, nullptr);
         assert(sock != k_HSteamListenSocket_Invalid);
 
         base->start();
@@ -348,7 +354,7 @@ struct steam_network_server : networking2::network_server
     }
 };
 
-void on_status_changed(SteamNetConnectionStatusChangedCallback_t* info)
+void global_on_status_changed(SteamNetConnectionStatusChangedCallback_t* info)
 {
     net->base->on_status_changed(info);
 }
