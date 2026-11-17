@@ -390,7 +390,7 @@ struct network_base
     }
 };
 
-#define USE_IP
+//#define USE_IP
 
 struct steam_network_server : networking2::network_server
 {
@@ -413,10 +413,23 @@ struct steam_network_server : networking2::network_server
         SteamAPI_ISteamGameServer_LogOn(sgs, steamid_token.c_str());
         //SteamAPI_ISteamGameServer_LogOnAnonymous(sgs);
 
+        while(!SteamAPI_ISteamGameServer_BLoggedOn(sgs)){}
+
+        printf("Post login\n");
+
+        assert(SteamAPI_ISteamGameServer_BLoggedOn(sgs));
+
         std::cout << "Server hosted steam ID " << SteamAPI_ISteamGameServer_GetSteamID(sgs) << " on port " << port << std::endl;
 
         sns = SteamAPI_SteamGameServerNetworkingSockets_SteamAPI();
         assert(sns);
+
+        SteamNetworkingIdentity sni;
+        sni.Clear();
+
+        assert(SteamAPI_ISteamNetworkingSockets_GetIdentity(sns, &sni));
+
+        std::cout << "SNI Steam Id " << sni.GetSteamID64() << std::endl;
         #else
         SteamAPI_Init();
 
