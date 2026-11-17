@@ -464,10 +464,10 @@ struct steam_network_server : networking2::network_server
             opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)global_on_status_changed);
         }
 
-        {
+        /*{
             SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
             opt.SetInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 2);
-        }
+        }*/
 
         {
             SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
