@@ -510,10 +510,21 @@ struct steam_network_client : networking2::network_client
                 printf("Bad Connection\n");
 
                 SteamAPI_ISteamNetworkingSockets_CloseConnection(sns, info->m_hConn, 0, nullptr, false);
+                conn = k_HSteamNetConnection_Invalid;
                 break;
 
             case k_ESteamNetworkingConnectionState_Connecting:
                 printf("Connecting\n");
+
+                if(!SteamAPI_ISteamNetworkingSockets_SetConnectionPollGroup(sns, info->m_hConn, base->poll_group))
+                {
+                    conn = k_HSteamNetConnection_Invalid;
+                    SteamAPI_ISteamNetworkingSockets_CloseConnection(sns, info->m_hConn, 0, nullptr, false);
+                    break;
+                }
+
+                printf("Set Poll Group\n");
+
                 break;
 
             case k_ESteamNetworkingConnectionState_Connected:
