@@ -96,7 +96,9 @@ struct network_base
 
     void send_to(HSteamNetConnection conn, std::string_view data)
     {
-        SteamAPI_ISteamNetworkingSockets_SendMessageToConnection(sns, conn, data.data(), data.size(), k_nSteamNetworkingSend_ReliableNoNagle, nullptr);
+        EResult result = SteamAPI_ISteamNetworkingSockets_SendMessageToConnection(sns, conn, data.data(), data.size(), k_nSteamNetworkingSend_ReliableNoNagle, nullptr);
+
+        assert(result == k_EResultOK);
     }
 
     void add_disconnected(uint64_t id)
@@ -341,6 +343,30 @@ struct steam_network_server : networking2::network_server
             opt.SetInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 2);
         }
 
+        {
+            SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
+            opt.SetInt32(k_ESteamNetworkingConfig_SendBufferSize, 512 * 1024 * 64);
+        }
+
+        {
+            SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
+            opt.SetInt32(k_ESteamNetworkingConfig_RecvBufferSize, 512 * 1024 * 64);
+        }
+
+        {
+            SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
+            opt.SetInt32(k_ESteamNetworkingConfig_RecvBufferMessages, 10000);
+        }
+
+        {
+            SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
+            opt.SetInt32(k_ESteamNetworkingConfig_SendRateMin, 8 * 1024 * 1024);
+        }
+
+        {
+            SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
+            opt.SetInt32(k_ESteamNetworkingConfig_SendRateMax, 8 * 1024 * 1024);
+        }
 
         #ifdef USE_IP
         SteamNetworkingIPAddr addr;
