@@ -390,7 +390,7 @@ struct network_base
     }
 };
 
-//#define USE_IP
+#define USE_IP
 
 struct steam_network_server : networking2::network_server
 {
