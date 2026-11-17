@@ -191,6 +191,8 @@ struct network_base
         if(num == 0)
             return false;
 
+        printf("Receiving %i\n", num);
+
         for(int i=0; i < num; i++)
         {
             ISteamNetworkingMessage* message = messages[i];
@@ -254,6 +256,8 @@ struct network_base
                     SteamAPI_ISteamNetworkingSockets_CloseConnection(sns, info->m_hConn, 0, nullptr, false);
                     break;
                 }
+
+                printf("Connecting2\n");
 
                 //clients.insert(info->m_hConn);
 
