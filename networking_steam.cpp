@@ -433,7 +433,6 @@ struct steam_network_client : networking2::network_client
         addr.Clear();
         assert(addr.ParseString(address.c_str()));
         addr.m_port = port;
-        sni.SetIPAddr(addr);
 
         conn = SteamAPI_ISteamNetworkingSockets_ConnectByIPAddress(sns, addr, cfgs.size(), cfgs.data());
         #else
