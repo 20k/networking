@@ -136,7 +136,7 @@ struct network_base
 
         for(const write_data& d : to_write)
         {
-            printf("Sent Message %s\n", d.data.c_str());
+            //printf("Sent Message %s\n", d.data.c_str());
 
             send_to((HSteamNetConnection)d.id, d.data);
 
@@ -195,7 +195,7 @@ struct network_base
         if(num == 0)
             return false;
 
-        printf("Receiving %i\n", num);
+        //printf("Receiving %i\n", num);
 
         for(int i=0; i < num; i++)
         {
@@ -212,6 +212,8 @@ struct network_base
                 write_data& wd = read_msgs.emplace_back();
                 wd.data = std::move(data);
                 wd.id = (uint64_t)message->m_conn;
+
+                //printf("Id %lli\n", wd.id);
             }
         }
 
