@@ -626,7 +626,7 @@ struct steam_network_client : networking2::network_client
 
         {
             SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
-            opt.SetInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 2);
+            opt.SetInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1);
         }
 
         std::cout << "Connecting port " << port << std::endl;
