@@ -384,14 +384,16 @@ struct steam_network_client : networking2::network_client
         base = new network_base(sns);
     }
 
-    void connect(const std::string& address, uint16_t port) override
+    void connect(uint64_t csteam_id, uint16_t port) override
     {
         SteamNetworkingIdentity sni;
 
-        SteamNetworkingIPAddr addr;
-        assert(addr.ParseString((address + ":" + std::to_string(port)).c_str()));
+        //SteamNetworkingIPAddr addr;
+        //assert(addr.ParseString((address + ":" + std::to_string(port)).c_str()));
 
-        sni.SetIPAddr(addr);
+        //sni.SetIPAddr(addr);
+
+        sni.SetSteamID(csteam_id);
 
         SteamNetworkingConfigValue_t opt;
 		opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)client_global_on_status_changed);
