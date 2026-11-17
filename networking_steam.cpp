@@ -407,14 +407,20 @@ struct steam_network_client : networking2::network_client
 
         sni.SetSteamID(csteam_id);
 
-        SteamNetworkingConfigValue_t opt;
-		opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)client_global_on_status_changed);
-		opt.SetInt32(k_ESteamNetworkingConfig_P2P_Transport_ICE_Enable, 0);
+        std::vector<SteamNetworkingConfigValue_t> cfgs;
 
-        conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P(sns, sni, 0, 1, &opt);
+        {
+            SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
+            opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)client_global_on_status_changed);
+        }
+
+        {
+            SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
+            opt.SetInt32(k_ESteamNetworkingConfig_P2P_Transport_ICE_Enable, 0);
+        }
+
+        conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P(sns, sni, 0, cfgs.size(), cfgs.data());
         in_progress = true;
-
-        return;
 
         base->start();
     }
@@ -443,26 +449,29 @@ struct steam_network_client : networking2::network_client
     {
         printf("StatusChange\n");
 
-        return;
         assert(info->m_hConn == conn || conn == k_HSteamNetConnection_Invalid);
 
         switch(info->m_info.m_eState)
         {
             case k_ESteamNetworkingConnectionState_None:
+                printf("None\n");
                 break;
 
             case k_ESteamNetworkingConnectionState_ClosedByPeer:
             case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
                 client_connected = false;
                 in_progress = false;
+                printf("Bad Connection\n");
 
                 SteamAPI_ISteamNetworkingSockets_CloseConnection(sns, info->m_hConn, 0, nullptr, false);
                 break;
 
             case k_ESteamNetworkingConnectionState_Connecting:
+                printf("Connecting\n");
                 break;
 
             case k_ESteamNetworkingConnectionState_Connected:
+                printf("Connected\n");
                 client_connected = true;
                 in_progress = false;
 
