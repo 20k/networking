@@ -1,4 +1,5 @@
 #include "networking_steam.hpp"
+#define SOCKETS_STEAM
 #ifdef SOCKETS_STEAM
 #include <steamworks_sdk_163/sdk/public/steam/steam_api_flat.h>
 #include <steamworks_sdk_163/sdk/public/steam/steam_gameserver.h>
@@ -405,7 +406,7 @@ struct steam_network_server : networking2::network_server
 
         #ifdef SOCKETS_STEAM
         #if 1
-        assert(SteamGameServer_Init(0, port, 1300, eServerModeNoAuthentication, "1.0.0.0"));
+        assert(SteamGameServer_Init(0, port, 1300, eServerModeAuthentication, "1.0.0.0"));
 
         ISteamGameServer* sgs = SteamAPI_SteamGameServer();
 
