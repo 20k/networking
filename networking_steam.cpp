@@ -1,10 +1,6 @@
 #include "networking_steam.hpp"
 #include <steamworks_sdk_163/sdk/public/steam/steam_api_flat.h>
-#include <steamworks_sdk_163/sdk/public/steam/steam_api.h>
-#include <steamworks_sdk_163/sdk/public/steam/steam_api_common.h>
 #include <steamworks_sdk_163/sdk/public/steam/steam_gameserver.h>
-#include <steamworks_sdk_163/sdk/public/steam/isteamnetworkingsockets.h>
-#include <steamworks_sdk_163/sdk/public/steam/isteamnetworkingutils.h>
 #include <assert.h>
 #include <flat_set>
 #include <string_view>
