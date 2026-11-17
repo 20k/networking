@@ -83,10 +83,10 @@ struct network_base
         thrd = std::jthread([this]{
             while(!shutdown)
             {
+                poll();
                 bool any = send_all();
                 any = receive_messages() || any;
                 handle_disconnects();
-                poll();
 
                 if(!any)
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -316,6 +316,7 @@ struct steam_network_server : networking2::network_server
 
         #ifdef USE_IP
         SteamNetworkingIPAddr addr;
+        addr.Clear();
         addr.SetIPv4(0, port);
         sock = SteamAPI_ISteamNetworkingSockets_CreateListenSocketIP(sns, addr, 1, &opt);
         #else
@@ -407,6 +408,7 @@ struct steam_network_client : networking2::network_client
     void connect(uint64_t csteam_id, uint16_t port, const std::string& address) override
     {
         SteamNetworkingIdentity sni;
+        sni.Clear();
 
         std::cout << "Internal connecting to " << csteam_id << " address " << address << std::endl;
 
@@ -428,6 +430,7 @@ struct steam_network_client : networking2::network_client
 
         #ifdef USE_IP
         SteamNetworkingIPAddr addr;
+        addr.Clear();
         assert(addr.ParseString(address.c_str()));
         addr.m_port = port;
         sni.SetIPAddr(addr);
