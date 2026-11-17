@@ -511,8 +511,6 @@ struct steam_network_server : networking2::network_server
 
 void global_on_status_changed(SteamNetConnectionStatusChangedCallback_t* info)
 {
-    printf("Global Network Status Changea\n");
-
     net->base->on_status_changed(info);
 }
 
