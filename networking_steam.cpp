@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <thread>
 #include <atomic>
+#include <iostream>
 
 void networking2::connection_send_data::disconnect(uint64_t id)
 {
@@ -377,7 +378,7 @@ struct steam_network_client : networking2::network_client
 
     steam_network_client()
     {
-        SteamAPI_Init();
+        assert(SteamAPI_Init());
 
         sns = SteamAPI_SteamNetworkingSockets_SteamAPI();
         assert(sns);
@@ -394,27 +395,47 @@ struct steam_network_client : networking2::network_client
 
         //sni.SetIPAddr(addr);
 
+        std::cout << "Connecting to " << csteam_id << std::endl;
+
         sni.SetSteamID(csteam_id);
 
         SteamNetworkingConfigValue_t opt;
 		opt.SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)client_global_on_status_changed);
+		opt.SetInt32(k_ESteamNetworkingConfig_P2P_Transport_ICE_Enable, 0);
 
-        conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P(sns, sni, port, 1, &opt);
+        conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P(sns, sni, 0, 1, &opt);
         in_progress = true;
+
+        return;
+
+        base->start();
     }
 
     void send_bulk(networking2::connection_send_data&& to_send) override
     {
+        return;
+
+        if(!client_connected)
+            return;
+
         base->send_bulk(std::move(to_send));
     }
 
     void receive_bulk(networking2::connection_received_data& to_receive) override
     {
+        return;
+
+        if(!client_connected)
+            return;
+
         base->receive_bulk(to_receive);
     }
 
     void on_status_changed(SteamNetConnectionStatusChangedCallback_t* info)
     {
+        printf("StatusChange\n");
+
+        return;
         assert(info->m_hConn == conn || conn == k_HSteamNetConnection_Invalid);
 
         switch(info->m_info.m_eState)
