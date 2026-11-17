@@ -327,6 +327,8 @@ struct network_base
         //surprise!
         if(is_server)
             SteamGameServer_RunCallbacks();
+        else
+            SteamAPI_RunCallbacks();
     }
 
     void on_status_changed(SteamNetConnectionStatusChangedCallback_t* info)
@@ -391,6 +393,9 @@ struct network_base
     {
         shutdown = true;
         thrd.join();
+
+        SteamAPI_ISteamNetworkingSockets_DestroyPollGroup(sns, poll_group);
+        poll_group = k_HSteamNetPollGroup_Invalid;
     }
 };
 
@@ -539,10 +544,7 @@ struct steam_network_server : networking2::network_server
         assert(sgs);
         #endif
 
-        //follow destruct order from valve's example chat
-        //https://github.com/ValveSoftware/GameNetworkingSockets/blob/master/examples/example_chat.cpp
         SteamAPI_ISteamNetworkingSockets_CloseListenSocket(sns, sock);
-        SteamAPI_ISteamNetworkingSockets_DestroyPollGroup(sns, base->poll_group);
 
         #ifdef SOCKETS_STEAM
         SteamAPI_ISteamGameServer_LogOff(sgs);
@@ -575,6 +577,7 @@ struct steam_network_client : networking2::network_client
     HSteamNetConnection conn = k_HSteamNetConnection_Invalid;
 
     network_base* base = nullptr;
+    bool has_steamapi = false;
 
     bool client_connected_to_server() override
     {
@@ -586,42 +589,58 @@ struct steam_network_client : networking2::network_client
         return in_progress;
     }
 
+    void boot_steamapi()
+    {
+        if(has_steamapi)
+            return;
+
+        has_steamapi = true;
+
+        #ifdef SOCKETS_STEAM
+        #if 0
+        assert(SteamGameServer_Init(0, port + 1, 1301, eServerModeNoAuthentication, "1.0.0.0"));
+
+        ISteamGameServer* sgs = SteamAPI_SteamGameServer();
+        SteamAPI_ISteamGameServer_LogOnAnonymous(sgs);
+
+        std::cout << "Non steam client workaround hosted steam ID " << SteamAPI_ISteamGameServer_GetSteamID(sgs) << " on port " << port << std::endl;
+
+        sns = SteamAPI_SteamGameServerNetworkingSockets_SteamAPI();
+        assert(sns);
+        #else
+        SteamAPI_Init();
+        sns = SteamAPI_SteamNetworkingSockets_SteamAPI();
+        #endif
+        #else
+        SteamDatagramErrMsg errMsg = {};
+        bool success = GameNetworkingSockets_Init(nullptr, errMsg);
+
+        if(!success)
+        {
+            printf("Init error %s\n", errMsg);
+            assert(false);
+        }
+
+        sns = SteamAPI_SteamNetworkingSockets_v009();
+        #endif
+
+        SteamAPI_ISteamNetworkingSockets_InitAuthentication(sns);
+    }
+
     void connect(uint64_t csteam_id, uint16_t port, const std::string& address) override
     {
-        if(base == nullptr)
+        assert(conn == k_HSteamNetConnection_Invalid);
+
+        boot_steamapi();
+
+        if(base)
         {
-            #ifdef SOCKETS_STEAM
-            #if 0
-            assert(SteamGameServer_Init(0, port + 1, 1301, eServerModeNoAuthentication, "1.0.0.0"));
-
-            ISteamGameServer* sgs = SteamAPI_SteamGameServer();
-            SteamAPI_ISteamGameServer_LogOnAnonymous(sgs);
-
-            std::cout << "Non steam client workaround hosted steam ID " << SteamAPI_ISteamGameServer_GetSteamID(sgs) << " on port " << port << std::endl;
-
-            sns = SteamAPI_SteamGameServerNetworkingSockets_SteamAPI();
-            assert(sns);
-            #else
-            SteamAPI_Init();
-            sns = SteamAPI_SteamNetworkingSockets_SteamAPI();
-            #endif
-            #else
-            SteamDatagramErrMsg errMsg = {};
-            bool success = GameNetworkingSockets_Init(nullptr, errMsg);
-
-            if(!success)
-            {
-                printf("Init error %s\n", errMsg);
-                assert(false);
-            }
-
-            sns = SteamAPI_SteamNetworkingSockets_v009();
-            #endif
-
-            SteamAPI_ISteamNetworkingSockets_InitAuthentication(sns);
-
-            base = new network_base(sns);
+            //I intentionally leak the connection, as steam callbacks may still be executing
+            base->stop();
+            base = nullptr;
         }
+
+        base = new network_base(sns);
 
         SteamNetworkingIdentity sni;
         sni.Clear();
@@ -642,10 +661,10 @@ struct steam_network_client : networking2::network_client
             opt.SetInt32(k_ESteamNetworkingConfig_P2P_Transport_ICE_Enable, 0);
         }
 
-        {
+        /*{
             SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
             opt.SetInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 2);
-        }
+        }*/
 
         std::cout << "Connecting port " << port << std::endl;
 
@@ -663,7 +682,7 @@ struct steam_network_client : networking2::network_client
 
         base->start(false);
 
-        #ifdef SOCKETS_STEAM
+        /*#ifdef SOCKETS_STEAM
         SteamNetAuthenticationStatus_t details = {};
         ESteamNetworkingAvailability avail = SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus(sns, &details);
 
@@ -674,7 +693,7 @@ struct steam_network_client : networking2::network_client
 
         assert(avail == 100);
         printf("I Am Authenticated On Steam Relay\n");
-        #endif
+        #endif*/
     }
 
     void send_bulk(networking2::connection_send_data&& to_send) override
