@@ -405,7 +405,7 @@ struct steam_network_client : networking2::network_client
 
         std::cout << "Connecting to " << csteam_id << std::endl;
 
-        sni.SetSteamID(csteam_id);
+        sni.SetSteamID64(csteam_id);
 
         std::vector<SteamNetworkingConfigValue_t> cfgs;
 
@@ -419,7 +419,9 @@ struct steam_network_client : networking2::network_client
             opt.SetInt32(k_ESteamNetworkingConfig_P2P_Transport_ICE_Enable, 0);
         }
 
-        conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P(sns, sni, 0, cfgs.size(), cfgs.data());
+        std::cout << "Connecting port " << port << std::endl;
+
+        conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P(sns, sni, port, cfgs.size(), cfgs.data());
         in_progress = true;
 
         base->start();
