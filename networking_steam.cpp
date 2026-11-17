@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <thread>
 #include <atomic>
+#include <iostream>
 
 void networking2::connection_send_data::disconnect(uint64_t id)
 {
@@ -289,6 +290,8 @@ struct steam_network_server : networking2::network_server
 
         SteamAPI_ISteamGameServer_LogOn(sgs, steamid_token.c_str());
         //SteamAPI_ISteamGameServer_LogOnAnonymous(sgs);
+
+        std::cout << "Server hosted steam ID " << SteamAPI_ISteamGameServer_GetSteamID(sgs) << std::endl;
 
         sns = SteamAPI_SteamGameServerNetworkingSockets_SteamAPI();
         assert(sns);
