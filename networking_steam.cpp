@@ -337,11 +337,13 @@ struct network_base
     {
         SteamAPI_ISteamNetworkingSockets_RunCallbacks(sns);
 
+        #ifdef SOCKETS_STEAM
         //surprise!
         if(is_server)
             SteamGameServer_RunCallbacks();
         else
             SteamAPI_RunCallbacks();
+        #endif
     }
 
     void on_status_changed(SteamNetConnectionStatusChangedCallback_t* info)
