@@ -503,6 +503,18 @@ struct steam_network_server : networking2::network_server
             opt.SetInt32(k_ESteamNetworkingConfig_SendRateMax, 8 * 1024 * 1024);
         }
 
+        //#define LAG
+        #ifdef LAG
+        {
+            //int32_t data = 1000;
+            //SteamAPI_ISteamNetworkingUtils_SetConfigValue(snu, k_ESteamNetworkingConfig_FakePacketLag_Send, k_ESteamNetworkingConfig_Global, 0, k_ESteamNetworkingConfig_Int32, &data);
+
+            float pkt_loss = 20;
+            SteamAPI_ISteamNetworkingUtils_SetConfigValue(snu, k_ESteamNetworkingConfig_FakePacketLoss_Send, k_ESteamNetworkingConfig_Global, 0, k_ESteamNetworkingConfig_Float, &pkt_loss);
+
+        }
+        #endif // LAG
+
         #ifdef USE_IP
         SteamNetworkingIPAddr addr;
         addr.Clear();
