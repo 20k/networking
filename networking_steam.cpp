@@ -310,8 +310,6 @@ struct network_base
 
             if(data_opt == std::nullopt)
             {
-                printf("Bad Decompress\n");
-
                 std::lock_guard guard(disconnect_lock);
                 force_disconnect.push_back((uint64_t)message->m_conn);
                 continue;
@@ -348,8 +346,6 @@ struct network_base
 
     void on_status_changed(SteamNetConnectionStatusChangedCallback_t* info)
     {
-        printf("Status change\n");
-
         switch(info->m_info.m_eState)
         {
             case k_ESteamNetworkingConnectionState_None:
@@ -360,8 +356,6 @@ struct network_base
                 //if(auto it = clients.find(info->m_hConn); it != clients.end())
                 //    clients.erase(it);
 
-                printf("Disconnected\n");
-
                 add_disconnected((uint64_t)info->m_hConn);
 
                 SteamAPI_ISteamNetworkingSockets_CloseConnection(sns, info->m_hConn, 0, nullptr, false);
@@ -369,8 +363,6 @@ struct network_base
 
             case k_ESteamNetworkingConnectionState_Connecting:
                 //assert(clients.find(info->m_hConn) == clients.end());
-
-                printf("Connecting\n");
 
                 if(SteamAPI_ISteamNetworkingSockets_AcceptConnection(sns, info->m_hConn) != k_EResultOK)
                 {
@@ -384,8 +376,6 @@ struct network_base
                     break;
                 }
 
-                printf("Connecting2\n");
-
                 //clients.insert(info->m_hConn);
 
                 {
@@ -396,7 +386,6 @@ struct network_base
                 break;
 
             case k_ESteamNetworkingConnectionState_Connected:
-                printf("Connected\n");
                 break;
 
             default:
