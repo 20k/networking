@@ -602,7 +602,7 @@ struct steam_network_client : networking2::network_client
         return in_progress;
     }
 
-    void boot_steamapi()
+    void boot_steamapi(bool enable_relay)
     {
         if(has_steamapi)
             return;
@@ -626,19 +626,22 @@ struct steam_network_client : networking2::network_client
         #endif
 
         #ifdef SOCKETS_STEAM
-        SteamAPI_ISteamNetworkingSockets_InitAuthentication(sns);
-
-        SteamNetAuthenticationStatus_t details = {};
-        ESteamNetworkingAvailability avail = SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus(sns, &details);
-
-        while(avail != k_ESteamNetworkingAvailability_Current)
+        if(enable_relay)
         {
-            SteamAPI_RunCallbacks();
-            avail = SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus(sns, &details);
-        }
+            SteamAPI_ISteamNetworkingSockets_InitAuthentication(sns);
 
-        assert(avail == k_ESteamNetworkingAvailability_Current);
-        printf("I Am Authenticated On Steam Relay\n");
+            SteamNetAuthenticationStatus_t details = {};
+            ESteamNetworkingAvailability avail = SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus(sns, &details);
+
+            while(avail != k_ESteamNetworkingAvailability_Current)
+            {
+                SteamAPI_RunCallbacks();
+                avail = SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus(sns, &details);
+            }
+
+            assert(avail == k_ESteamNetworkingAvailability_Current);
+            printf("I Am Authenticated On Steam Relay\n");
+        }
         #endif
     }
 
@@ -646,7 +649,7 @@ struct steam_network_client : networking2::network_client
     {
         assert(conn == k_HSteamNetConnection_Invalid);
 
-        boot_steamapi();
+        boot_steamapi(!force_ip);
 
         if(base)
         {
