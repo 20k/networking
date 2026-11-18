@@ -208,6 +208,8 @@ struct network_base
             HSteamNetConnection conn = (HSteamNetConnection)id;
             SteamAPI_ISteamNetworkingSockets_CloseConnection(sns, conn, 0, nullptr, false);
 
+            add_disconnected(id);
+
             //clients.erase((HSteamNetConnection)id);
         }
     }
@@ -399,7 +401,11 @@ struct network_base
     }
 };
 
+//#define USE_IP
+
+#ifndef SOCKETS_STEAM
 #define USE_IP
+#endif // SOCKETS_STEAM
 
 struct steam_network_server : networking2::network_server
 {
