@@ -184,6 +184,12 @@ struct network_base
     {
         EResult result = SteamAPI_ISteamNetworkingSockets_SendMessageToConnection(sns, conn, data.data(), data.size(), k_nSteamNetworkingSend_ReliableNoNagle, nullptr);
 
+        if(result != k_EResultOK)
+        {
+            std::lock_guard guard(disconnect_lock);
+            force_disconnect.push_back((uint64_t)conn);
+        }
+
         //assert(result == k_EResultOK);
     }
 
