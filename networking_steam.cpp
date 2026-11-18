@@ -1,5 +1,10 @@
 #include "networking_steam.hpp"
 #define SOCKETS_STEAM
+
+#ifdef NO_STEAM_SOCKETS
+#undef SOCKETS_STEAM
+#endif // NO_STEAM_SOCKETS
+
 #ifdef SOCKETS_STEAM
 #include <steamworks_sdk_163/sdk/public/steam/steam_api_flat.h>
 #include <steamworks_sdk_163/sdk/public/steam/steam_gameserver.h>
