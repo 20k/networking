@@ -12,6 +12,7 @@ namespace networking2
     {
         uint64_t id = 0;
         std::string data;
+        bool unreliable = false;
     };
 
     struct connection_received_data

@@ -185,9 +185,12 @@ struct network_base
         });
     }
 
-    void send_to(HSteamNetConnection conn, std::string_view data)
+    void send_to(HSteamNetConnection conn, std::string_view data, bool unreliable)
     {
-        EResult result = SteamAPI_ISteamNetworkingSockets_SendMessageToConnection(sns, conn, data.data(), data.size(), k_nSteamNetworkingSend_ReliableNoNagle, nullptr);
+        EResult result = SteamAPI_ISteamNetworkingSockets_SendMessageToConnection(sns, conn, data.data(), data.size(),
+                                                                                  unreliable ?
+                                                                                  k_nSteamNetworkingSend_UnreliableNoNagle :
+                                                                                  k_nSteamNetworkingSend_ReliableNoNagle, nullptr);
 
         if(result != k_EResultOK)
         {
@@ -239,7 +242,7 @@ struct network_base
         {
             //printf("Sent Message %s\n", d.data.c_str());
 
-            send_to((HSteamNetConnection)d.id, compress(d.data));
+            send_to((HSteamNetConnection)d.id, compress(d.data), d.unreliable);
 
             SteamAPI_ISteamNetworkingSockets_FlushMessagesOnConnection(sns, (HSteamNetConnection)d.id);
         }
