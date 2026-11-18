@@ -642,7 +642,7 @@ struct steam_network_client : networking2::network_client
         #endif
     }
 
-    void connect(uint64_t csteam_id, uint16_t port, const std::string& address) override
+    void connect(uint64_t csteam_id, uint16_t port, const std::string& address, bool force_ip) override
     {
         assert(conn == k_HSteamNetConnection_Invalid);
 
@@ -689,23 +689,32 @@ struct steam_network_client : networking2::network_client
             opt.SetInt32(k_ESteamNetworkingConfig_TimeoutConnected, 5000);
         }
 
-        /*{
+        if(force_ip)
+        {
             SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
             opt.SetInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 2);
-        }*/
+        }
 
         std::cout << "Connecting port " << port << std::endl;
 
         #ifdef USE_IP
-        SteamNetworkingIPAddr addr;
-        addr.Clear();
-        assert(addr.ParseString(address.c_str()));
-        addr.m_port = port;
+        force_ip = true;
+        #endif // USE_IP
 
-        conn = SteamAPI_ISteamNetworkingSockets_ConnectByIPAddress(sns, addr, cfgs.size(), cfgs.data());
-        #else
-        conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P(sns, sni, 0, cfgs.size(), cfgs.data());
-        #endif
+        if(force_ip)
+        {
+            SteamNetworkingIPAddr addr;
+            addr.Clear();
+            assert(addr.ParseString(address.c_str()));
+            addr.m_port = port;
+
+            conn = SteamAPI_ISteamNetworkingSockets_ConnectByIPAddress(sns, addr, cfgs.size(), cfgs.data());
+        }
+        else
+        {
+            conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P(sns, sni, 0, cfgs.size(), cfgs.data());
+        }
+
         in_progress = true;
 
         base->start(false);
