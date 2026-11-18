@@ -651,7 +651,7 @@ struct steam_network_client : networking2::network_client
 
     void connect(uint64_t csteam_id, uint16_t port, const std::string& address, bool force_ip) override
     {
-        //assert(conn == k_HSteamNetConnection_Invalid);
+        assert(conn == k_HSteamNetConnection_Invalid);
 
         boot_steamapi(!force_ip);
 
@@ -748,8 +748,6 @@ struct steam_network_client : networking2::network_client
 
     void on_status_changed(SteamNetConnectionStatusChangedCallback_t* info)
     {
-        //assert(info->m_hConn == conn || conn == k_HSteamNetConnection_Invalid);
-
         switch(info->m_info.m_eState)
         {
             case k_ESteamNetworkingConnectionState_None:
@@ -760,8 +758,10 @@ struct steam_network_client : networking2::network_client
             case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
                 printf("Bad Connection\n");
 
+                assert(info->m_hConn == conn || conn == k_HSteamNetConnection_Invalid);
+
                 SteamAPI_ISteamNetworkingSockets_CloseConnection(sns, info->m_hConn, 0, nullptr, false);
-                //conn = k_HSteamNetConnection_Invalid;
+                conn = k_HSteamNetConnection_Invalid;
 
                 client_connected = false;
                 in_progress = false;
@@ -770,10 +770,12 @@ struct steam_network_client : networking2::network_client
             case k_ESteamNetworkingConnectionState_Connecting:
                 printf("Connecting\n");
 
+                assert(info->m_hConn == conn || conn == k_HSteamNetConnection_Invalid);
+
                 if(!SteamAPI_ISteamNetworkingSockets_SetConnectionPollGroup(sns, info->m_hConn, base->poll_group))
                 {
                     SteamAPI_ISteamNetworkingSockets_CloseConnection(sns, info->m_hConn, 0, nullptr, false);
-                    //conn = k_HSteamNetConnection_Invalid;
+                    conn = k_HSteamNetConnection_Invalid;
                     client_connected = false;
                     in_progress = false;
                     break;
@@ -784,6 +786,8 @@ struct steam_network_client : networking2::network_client
                 break;
 
             case k_ESteamNetworkingConnectionState_Connected:
+                assert(info->m_hConn == conn || conn == k_HSteamNetConnection_Invalid);
+
                 printf("Connected\n");
                 client_connected = true;
                 in_progress = false;
