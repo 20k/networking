@@ -676,12 +676,12 @@ struct steam_network_client : networking2::network_client
 
         {
             SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
-            opt.SetInt32(k_ESteamNetworkingConfig_TimeoutInitial, 5000);
+            opt.SetInt32(k_ESteamNetworkingConfig_TimeoutInitial, 10000);
         }
 
         {
             SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
-            opt.SetInt32(k_ESteamNetworkingConfig_TimeoutConnected, 5000);
+            opt.SetInt32(k_ESteamNetworkingConfig_TimeoutConnected, 10000);
         }
 
         if(force_ip)
