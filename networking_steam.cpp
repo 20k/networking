@@ -425,7 +425,15 @@ struct steam_network_server : networking2::network_server
         printf("Preinit\n");
 
         #ifdef SOCKETS_STEAM
-        assert(SteamGameServer_Init(0, port, 1300, eServerModeAuthentication, "1.0.0.0"));
+        SteamErrMsg msg = {};
+        ESteamAPIInitResult result = SteamGameServer_InitEx(0, port, 1300, eServerModeAuthentication, "1.0.0.0", &msg);
+
+        if(result != k_ESteamAPIInitResult_OK)
+        {
+            printf("Bad Init Result %i %s\n", result, msg);
+        }
+
+        assert(result == k_ESteamAPIInitResult_OK);
 
         ISteamGameServer* sgs = SteamAPI_SteamGameServer();
 
