@@ -545,6 +545,11 @@ struct steam_network_server : networking2::network_server
             float pkt_loss = 20;
             SteamAPI_ISteamNetworkingUtils_SetConfigValue(snu, k_ESteamNetworkingConfig_FakePacketLoss_Send, k_ESteamNetworkingConfig_Global, 0, k_ESteamNetworkingConfig_Float, &pkt_loss);
 
+            float pkt_reorder = 20;
+            SteamAPI_ISteamNetworkingUtils_SetConfigValue(snu, k_ESteamNetworkingConfig_FakePacketReorder_Send, k_ESteamNetworkingConfig_Global, 0, k_ESteamNetworkingConfig_Float, &pkt_reorder);
+
+            int reorder_ms = 20;
+            SteamAPI_ISteamNetworkingUtils_SetConfigValue(snu, k_ESteamNetworkingConfig_FakePacketReorder_Time, k_ESteamNetworkingConfig_Global, 0, k_ESteamNetworkingConfig_Int32, &reorder_ms);
         }
         #endif // LAG
 
