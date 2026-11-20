@@ -16,7 +16,7 @@
 #include <steamnetworkingsockets_flat.h>
 #endif
 #include <assert.h>
-//#include <flat_set>
+#include <flat_set>
 #include <string_view>
 #include <string>
 #include <mutex>
@@ -159,6 +159,7 @@ struct network_base
 
     std::mutex new_disconnected_lock;
     std::vector<uint64_t> new_disconnected;
+    std::flat_set<uint64_t> already_disconnected;
 
     std::mutex new_clients_lock;
     std::vector<uint64_t> new_clients;
@@ -217,7 +218,12 @@ struct network_base
 
     void add_disconnected(uint64_t id)
     {
-        std::lock_guard guard(disconnect_lock);
+        std::lock_guard guard(new_disconnected_lock);
+
+        if(already_disconnected.count(id) > 0)
+            return;
+
+        already_disconnected.insert(id);
         new_disconnected.push_back(id);
     }
 
@@ -397,7 +403,12 @@ struct network_base
 
                 {
                     std::lock_guard guard(new_clients_lock);
-                    new_clients.push_back((uint64_t)info->m_hConn);
+                    std::lock_guard guard2(new_disconnected_lock);
+
+                    uint64_t id = info->m_hConn;
+
+                    new_clients.push_back(id);
+                    already_disconnected.erase(id);
                 }
 
                 break;
