@@ -191,14 +191,28 @@ struct network_base
                                                                                   unreliable ?
                                                                                   k_nSteamNetworkingSend_UnreliableNoNagle :
                                                                                   k_nSteamNetworkingSend_ReliableNoNagle, nullptr);
-
-        if(result != k_EResultOK)
+        //yeet connections if we fail to send a message for any reason
+        //where that reason *isn't* that the connection is dead
+        if(!unreliable)
         {
-            std::lock_guard guard(disconnect_lock);
-            force_disconnect.push_back((uint64_t)conn);
-        }
+            bool disconnect = false;
 
-        //assert(result == k_EResultOK);
+            //disconnect
+            if(result == k_EResultIgnored)
+                disconnect = true;
+
+            if(result == k_EResultInvalidParam)
+                disconnect = true;
+
+            if(result == k_EResultLimitExceeded)
+                disconnect = true;
+
+            if(disconnect)
+            {
+                std::lock_guard guard(disconnect_lock);
+                force_disconnect.push_back((uint64_t)conn);
+            }
+        }
     }
 
     void add_disconnected(uint64_t id)
