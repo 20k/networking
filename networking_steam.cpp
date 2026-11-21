@@ -528,12 +528,12 @@ struct steam_network_server : networking2::network_server
 
         {
             SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
-            opt.SetInt32(k_ESteamNetworkingConfig_SendRateMin, 8 * 1024 * 1024);
+            opt.SetInt32(k_ESteamNetworkingConfig_SendRateMin, 16 * 1024 * 1024);
         }
 
         {
             SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
-            opt.SetInt32(k_ESteamNetworkingConfig_SendRateMax, 8 * 1024 * 1024);
+            opt.SetInt32(k_ESteamNetworkingConfig_SendRateMax, 16 * 1024 * 1024);
         }
 
         //#define LAG
