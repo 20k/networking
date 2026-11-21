@@ -139,12 +139,34 @@ std::optional<std::string> decompress(std::string_view in)
     return out;
 }
 
+template<typename T>
+void set_shared_opts(ISteamNetworkingUtils* snu, T conn)
+{
+    //HSteamNetConnection or HSteamListenSocket
+
+    ESteamNetworkingConfigScope scope = k_ESteamNetworkingConfig_Connection;
+
+    if constexpr(std::is_same_v<T, HSteamListenSocket>)
+    {
+        scope = k_ESteamNetworkingConfig_ListenSocket;
+    }
+
+    int warning_type = k_ESteamNetworkingSocketsDebugOutputType_Error;
+
+    SteamAPI_ISteamNetworkingUtils_SetConfigValue(snu, k_ESteamNetworkingConfig_LogLevel_AckRTT, scope, conn, k_ESteamNetworkingConfig_Int32, &warning_type);
+    SteamAPI_ISteamNetworkingUtils_SetConfigValue(snu, k_ESteamNetworkingConfig_LogLevel_PacketDecode, scope, conn, k_ESteamNetworkingConfig_Int32, &warning_type);
+    SteamAPI_ISteamNetworkingUtils_SetConfigValue(snu, k_ESteamNetworkingConfig_LogLevel_Message, scope, conn, k_ESteamNetworkingConfig_Int32, &warning_type);
+    SteamAPI_ISteamNetworkingUtils_SetConfigValue(snu, k_ESteamNetworkingConfig_LogLevel_PacketGaps, scope, conn, k_ESteamNetworkingConfig_Int32, &warning_type);
+    SteamAPI_ISteamNetworkingUtils_SetConfigValue(snu, k_ESteamNetworkingConfig_LogLevel_P2PRendezvous, scope, conn, k_ESteamNetworkingConfig_Int32, &warning_type);
+}
+
 struct network_base
 {
-    network_base(ISteamNetworkingSockets* sock) : sns(sock){}
+    network_base(ISteamNetworkingSockets* sock, ISteamNetworkingUtils* snup) : sns(sock), snu(snup){}
 
     HSteamNetPollGroup poll_group;
     ISteamNetworkingSockets* sns = nullptr;
+    ISteamNetworkingUtils* snu = nullptr;
 
     //std::flat_set<HSteamNetConnection> clients;
 
@@ -437,6 +459,14 @@ struct network_base
 #define USE_IP
 #endif // SOCKETS_STEAM
 
+void add_global_shared_opts(std::vector<SteamNetworkingConfigValue_t>& cfgs)
+{
+    /*{
+        SteamNetworkingConfigValue_t& opt = cfgs.emplace_back();
+        opt.SetInt32(k_ESteamNetworkingConfig_LogLevel_SDRRelayPings, k_ESteamNetworkingSocketsDebugOutputType_Error);
+    }*/
+}
+
 struct steam_network_server : networking2::network_server
 {
     network_base* base = nullptr;
@@ -497,7 +527,7 @@ struct steam_network_server : networking2::network_server
         assert(snu);
         #endif
 
-        base = new network_base(sns);
+        base = new network_base(sns, snu);
 
         std::vector<SteamNetworkingConfigValue_t> cfgs;
 
@@ -536,6 +566,8 @@ struct steam_network_server : networking2::network_server
             opt.SetInt32(k_ESteamNetworkingConfig_SendRateMax, 16 * 1024 * 1024);
         }
 
+        add_global_shared_opts(cfgs);
+
         //#define LAG
         #ifdef LAG
         {
@@ -563,6 +595,8 @@ struct steam_network_server : networking2::network_server
         #endif
 
         assert(sock != k_HSteamListenSocket_Invalid);
+
+        set_shared_opts(snu, sock);
 
         base->start(true);
 
@@ -629,6 +663,7 @@ struct steam_network_client : networking2::network_client
     std::atomic_bool client_connected{false};
     std::atomic_bool in_progress{false};
     ISteamNetworkingSockets* sns = nullptr;
+    ISteamNetworkingUtils* snu = nullptr;
     HSteamNetConnection conn = k_HSteamNetConnection_Invalid;
 
     network_base* base = nullptr;
@@ -654,6 +689,7 @@ struct steam_network_client : networking2::network_client
         #ifdef SOCKETS_STEAM
         SteamAPI_Init();
         sns = SteamAPI_SteamNetworkingSockets_SteamAPI();
+        snu = SteamAPI_SteamNetworkingUtils_SteamAPI();
         #else
         SteamDatagramErrMsg errMsg = {};
         bool success = GameNetworkingSockets_Init(nullptr, errMsg);
@@ -665,6 +701,7 @@ struct steam_network_client : networking2::network_client
         }
 
         sns = SteamAPI_SteamNetworkingSockets_v009();
+        snu = SteamAPI_SteamNetworkingUtils_v003();
         #endif
 
         #ifdef SOCKETS_STEAM
@@ -703,7 +740,7 @@ struct steam_network_client : networking2::network_client
             base = nullptr;
         }
 
-        base = new network_base(sns);
+        base = new network_base(sns, snu);
 
         SteamNetworkingIdentity sni;
         sni.Clear();
@@ -740,6 +777,8 @@ struct steam_network_client : networking2::network_client
             opt.SetInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 2);
         }
 
+        add_global_shared_opts(cfgs);
+
         std::cout << "Connecting port " << port << std::endl;
 
         #ifdef USE_IP
@@ -759,6 +798,8 @@ struct steam_network_client : networking2::network_client
         {
             conn = SteamAPI_ISteamNetworkingSockets_ConnectP2P(sns, sni, 0, cfgs.size(), cfgs.data());
         }
+
+        set_shared_opts(snu, conn);
 
         in_progress = true;
 
