@@ -445,13 +445,13 @@ struct steam_network_server : networking2::network_server
 
     steam_network_server(){}
 
-    void host(const std::string& address, uint16_t port, const std::string& steamid_token) override
+    void host(const std::string& address, uint16_t port, uint16_t info_port, const std::string& steamid_token) override
     {
         printf("Preinit\n");
 
         #ifdef SOCKETS_STEAM
         SteamErrMsg msg = {};
-        ESteamAPIInitResult result = SteamGameServer_InitEx(0, port, 1300, eServerModeAuthentication, "1.0.0.0", &msg);
+        ESteamAPIInitResult result = SteamGameServer_InitEx(0, port, info_port, eServerModeAuthentication, "1.0.0.0", &msg);
 
         if(result != k_ESteamAPIInitResult_OK)
         {

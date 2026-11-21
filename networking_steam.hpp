@@ -38,7 +38,7 @@ namespace networking2
 
     struct network_server
     {
-        virtual void host(const std::string& address, uint16_t port, const std::string& steamid_token){assert(false);}
+        virtual void host(const std::string& address, uint16_t port, uint16_t info_port, const std::string& steamid_token){assert(false);}
 
         virtual void send_bulk(connection_send_data&& to_send){assert(false);}
         virtual void receive_bulk(connection_received_data& to_receive){assert(false);}
